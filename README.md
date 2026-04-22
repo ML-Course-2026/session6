@@ -12,8 +12,8 @@
 ---
 
 > [!IMPORTANT] 
-> - The project grade will be based on deliverables  from Phase 1 Phase 2 and Phase 3 (total of 260 points). 
-> - The [Peer Assessment](./material/peer-assessment-template.md):  is an individual submission and must be uploaded to OMA in Week 8.
+> - The project grade will be based on deliverables  from Phase 1, Phase 2 and Phase 3 (total of 260 points). 
+> - The [Peer Assessment](./material/peer-assessment-template.md) is an individual submission that will be uploaded to OMA in Week 8.
 
 ---
 ### Topics
@@ -44,6 +44,7 @@
 - Fine-Tuning Qwen 2.5 with LoRA
 - [Summary: Key Points and Takeaways](./material/part1.md)
 - [Activity 1](./material/activity1.md)
+- [Activity 1 (Short Version)](./material/activity1-short-version.md)
 
 ---
 

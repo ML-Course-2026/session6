@@ -1,4 +1,4 @@
-# Lab: Fine-Tuning Qwen 2.5 with LoRA
+# Activity 1: Fine-Tuning Qwen 2.5 with LoRA
 
 This is the longer reference version of the lab. It keeps the full explanations, alternatives, and appendix material while preserving the working code path used in the shorter version.
 

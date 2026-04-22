@@ -1,4 +1,4 @@
-# Lab: Fine-Tuning Qwen 2.5 with LoRA (Short Version)
+# Activity 1 (Short Version): Fine-Tuning Qwen 2.5 with LoRA 
 
 This short version focuses on the core workflow needed for the mini project:
 
