@@ -32,6 +32,12 @@ Before running any code, you must install the necessary machine learning librari
 !pip install -q transformers datasets peft accelerate huggingface_hub gradio
 ```
 
+> [!TIP]
+> To check how much RAM is available in the container associated with your Colab Jupyter notebook, use this command:
+```python
+!free -h
+```
+
 ---
 
 ### Step 1: Environment Setup and Authentication
@@ -52,7 +58,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub.
 try:
     # Attempt to fetch the token from Colab's secure storage
     hf_token = userdata.get('HF_TOKEN')
-    
+
     # Log into the Hugging Face Hub using the retrieved token
     login(hf_token)
     print("Authentication successful.")
@@ -100,7 +106,7 @@ tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     device_map="cuda",
-    torch_dtype=torch.float16 
+    torch_dtype=torch.float16
 )
 
 model.config.use_cache = False
@@ -148,8 +154,8 @@ messages = [{"role": "user", "content": "Who leads the neurology department at M
 
 # Format the prompt
 text = tokenizer.apply_chat_template(
-    messages, 
-    tokenize=False, 
+    messages,
+    tokenize=False,
     add_generation_prompt=True
 )
 
@@ -193,11 +199,11 @@ def preprocess(sample):
         {"role": "user", "content": sample['prompt']},
         {"role": "assistant", "content": sample['completion']}
     ]
-    
+
     # Automatically applies <|im_start|> and <|im_end|> ChatML tags
     text = tokenizer.apply_chat_template(
-        messages, 
-        tokenize=False, 
+        messages,
+        tokenize=False,
         add_generation_prompt=False
     )
 
@@ -208,7 +214,7 @@ def preprocess(sample):
         padding=False
     )
     # Explicitly create labels for loss calculation
-    tokenized["labels"] = tokenized["input_ids"].copy()
+    #tokenized["labels"] = tokenized["input_ids"].copy()
     return tokenized
 
 data = raw_data.map(
@@ -299,7 +305,7 @@ This means a dataset of exactly 236 lines will result in exactly 1,770 training 
 #[Cell 5] Training Setup and Execution
 from transformers import DataCollatorForLanguageModeling, TrainingArguments, Trainer
 
-# The Data Collator automatically batches data and pads shorter sentences to match the longest one
+# Let the collator handle padding + labels
 data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer,
     mlm=False
@@ -312,20 +318,28 @@ eval_dataset = split["test"]
 
 training_args = TrainingArguments(
     output_dir="./results",
-    num_train_epochs=15,          
-    learning_rate=2e-4,           
-    per_device_train_batch_size=2,
+    num_train_epochs=5,
+    learning_rate=2e-4,
+
+    per_device_train_batch_size=1,      # ↓ reduce to avoid OOM
+    gradient_accumulation_steps=2,      # keeps effective batch size
+
+    fp16=True,                          # ↓ big memory saver
+
     logging_steps=5,
-    evaluation_strategy="epoch", # Evaluates at the end of every epoch
-    lr_scheduler_type="cosine", # Smoothly decreases learning rate
+    eval_strategy="epoch",
+    lr_scheduler_type="cosine",
     remove_unused_columns=False
 )
+
+# IMPORTANT: enable memory savings
+model.gradient_checkpointing_enable()
 
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_dataset,
-    eval_dataset=eval_dataset, # Pass the validation set
+    eval_dataset=eval_dataset,
     data_collator=data_collator
 )
 
@@ -338,13 +352,21 @@ tokenizer.save_pretrained("./my_qwen")
 #### Code Explanation:
 *   `DataCollatorForLanguageModeling`: Acts as the bridge between your dataset and the training loop. It grabs `per_device_train_batch_size` sentences at a time (2 in this lab) and dynamically pads the shorter one with the `eos_token` so they form a perfect mathematical matrix.
 *   `mlm=False`: Disables "Masked Language Modeling". MLM is used by models like BERT to fill in blanks in the middle of sentences. Generative models like Qwen only predict the *next* word, so MLM must be `False`.
-*   `num_train_epochs=15`: An "epoch" is one complete pass over your entire dataset. Because LoRA only trains a tiny fraction of the model, and because your dataset is small, you need to show the data to the model 10-20 times for it to memorize the new facts.
+*   `num_train_epochs=5`: An "epoch" is one complete pass over your entire dataset. Because LoRA only trains a tiny fraction of the model, and because your dataset is small, you need to show the data to the model multiple times for it to memorize the new facts.
 *   `learning_rate=2e-4`: Dictates how large the mathematical adjustments are during training. LoRA adapters initialize with tiny weights, so they require a high learning rate (like `0.0002`) to learn effectively compared to full fine-tuning (which usually uses `0.00002`).
-*   `per_device_train_batch_size=2`: Determines how many examples are processed simultaneously. A batch size of 2 keeps VRAM usage low enough to fit on a free Colab GPU.
+*   `per_device_train_batch_size=1`: Determines how many examples are processed simultaneously. A batch size of 1 or 2 keeps VRAM usage low enough to fit on a free Colab GPU.
 *   `Trainer(...)`: The Hugging Face utility that handles all the complex PyTorch training loops, backpropagation, and loss calculations automatically.
 *   `trainer.save_model(...)`: This is critical! Because we used PEFT, this command **does not save the massive 3GB base model**. It only saves your tiny LoRA adapter weights (usually a few megabytes) into the `./my_qwen` folder.
 *   `remove_unused_columns=False`: By default, the Hugging Face Trainer automatically deletes any dataset columns that don't directly match the base model's expected inputs (like original text strings). Because our mapping function already handled this, setting it to `False` prevents the Trainer from accidentally deleting crucial tokenized data before training starts.
 *   `lr_scheduler_type="cosine"`: Slowly reduces the learning rate as training progresses. This prevents the model from taking massive mathematical "steps" near the end of training, helping it settle on the exact correct weights without overshooting.
+
+**NOTE ON OVERFITTING**
+
+This dataset is relatively small, which makes the model prone to overfitting. As a result:
+- Training loss will continue to decrease
+- Validation loss may start increasing very early (after 1–2 epochs)
+
+This is expected behavior for small datasets. We rely on early stopping or fewer epochs to capture the best model.
 
 
 
@@ -382,14 +404,14 @@ config = PeftConfig.from_pretrained(path)
 base_model = AutoModelForCausalLM.from_pretrained(
     config.base_model_name_or_path,
     device_map="cuda",
-    torch_dtype=torch.float16 
+    torch_dtype=torch.float16
 )
 
 # 2. Attach your tiny, fine-tuned adapter to the base model
 model = PeftModel.from_pretrained(base_model, path)
 
 # 3. Re-enable caching for faster inference speeds
-model.config.use_cache = True 
+model.config.use_cache = True
 ```
 
 #### Code Explanation:
@@ -416,8 +438,8 @@ messages =[{"role": "user", "content": "Who leads the neurology department at Me
 
 # Format the text with ChatML tags and generation prompt
 text = tokenizer.apply_chat_template(
-    messages, 
-    tokenize=False, 
+    messages,
+    tokenize=False,
     add_generation_prompt=True
 )
 
@@ -534,7 +556,7 @@ To ensure formatted output, you must inject this system rule during **both train
 Here is how you update your inference code (from Step 7) to enforce JSON output using a system role:
 
 ```python
-#[Modified Inference] Enforcing JSON Output
+#  [Cell 9] [Modified Inference] Enforcing JSON Output
 messages = [
     # 1. Add a system prompt with strict formatting rules
     {"role": "system", "content": "You are a helpful assistant. You must ONLY answer in valid JSON format. Do not include any plain text outside the JSON."},
@@ -579,6 +601,214 @@ def preprocess(sample):
 ```
 
 ---
+
+###  Model-controlled JSON output (via system prompt)
+
+
+This version relies entirely on the **model following instructions**.
+
+* A strict **system prompt** tells the model to output JSON.
+* If the model was trained well, it will follow the format.
+* If not, the output may break (invalid JSON, extra text, etc.).
+
+- **Key idea:** You’re controlling structure through *prompting*, not code.
+- **Tradeoff:** Simple to implement, but **not reliable** in production.
+
+
+```python
+#  [Cell 10] 
+import gradio as gr
+
+# 1. Define the function that Gradio will call when a user submits a prompt
+def generate_response(user_prompt):
+    messages = [
+        # Improved System Prompt: Give the model an exact JSON structure to follow
+        {
+            "role": "system",
+            "content": 'You are a helpful assistant. You must ONLY answer in valid JSON format using the following structure: {"answer": "your detailed response here"}'
+        },
+        {"role": "user", "content": user_prompt}
+    ]
+
+    # Format the text with ChatML tags
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    # Convert text to tensor numbers and move to GPU
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    # Generate the output
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    # Strip out the input prompt
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+    response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    return response_text
+
+# 2. Build the Gradio Interface
+demo = gr.Interface(
+    fn=generate_response,                      # The function to run
+    inputs=gr.Textbox(
+        lines=3,
+        placeholder="e.g. Who leads the neurology department at MediCore Hospital?",
+        label="Enter your prompt here"
+    ),
+    outputs=gr.Textbox(label="Model Output"),  # Where the output will show
+    title="MediCore Fine-Tuned Qwen Bot",
+    description="Ask questions about MediCore hospital. The model is instructed to reply in JSON format."
+)
+
+# 3. Launch the app (share=True creates a public link you can open)
+demo.launch(share=True, debug=True)
+```
+---
+
+### Python-enforced JSON wrapper (more reliable)
+
+This version assumes the model **cannot be trusted to format output correctly**.
+
+* The model generates plain text.
+* Python wraps that text into a valid JSON structure using `json.dumps()`.
+
+- **Key idea:** Structure is enforced *after* generation.
+
+- **Advantage:** Always produces valid JSON
+- **Limitation:** The model is unaware of the structure (no schema intelligence)
+
+
+```python
+#  [Cell 11] 
+import gradio as gr
+import json
+
+def generate_response(user_prompt):
+    # Removed the system prompt since the model wasn't trained to use one
+    messages = [
+        {"role": "user", "content": user_prompt}
+    ]
+
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+    response_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    # --- PYTHON JSON WRAPPER ---
+    # We take the raw text and force it into a JSON dictionary
+    json_output = json.dumps({"answer": response_text}, indent=4)
+
+    return json_output
+
+demo = gr.Interface(
+    fn=generate_response,
+    inputs=gr.Textbox(lines=3, label="Enter your prompt here"),
+    outputs=gr.Code(language="json", label="JSON Output"), # Changed output to code block
+    title="MediCore Fine-Tuned Qwen Bot"
+)
+
+demo.launch(share=True, debug=True)
+```
+---
+
+### Pydantic-structured output (best practice)
+
+This is the most robust and scalable method.
+
+* A **Pydantic schema** defines exactly what the output should look like.
+* The model still generates raw text, but:
+
+  * It is inserted into a structured object
+  * The structure is validated automatically
+
+**Key idea:** Treat model output like data that must conform to a schema.
+
+**Advantages:**
+
+* Guaranteed structure
+* Type validation
+* Easy to extend (add fields like `confidence`, `sources`, etc.)
+
+> **Best for:** APIs, production systems, and real applications
+
+```python
+#  [Cell 12] 
+import gradio as gr
+from pydantic import BaseModel, Field
+
+# 1. Define your strict Pydantic Schema
+class HospitalResponse(BaseModel):
+    # You can add as many fields as you want here
+    answer: str = Field(description="The main text answer to the user's question")
+    model_version: str = Field(default="Qwen2.5-1.5B-MediCore", description="The model used")
+
+def generate_response(user_prompt):
+    messages = [
+        {"role": "user", "content": user_prompt}
+    ]
+
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    # Generate the text
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+
+    # 1. Get the RAW plain text from the model
+    raw_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    # 2. Pass the raw text into your Pydantic model
+    structured_response = HospitalResponse(answer=raw_text)
+
+    # 3. Use Pydantic to dump it into a perfect JSON string
+    json_output = structured_response.model_dump_json(indent=4)
+
+    return json_output
+
+# Build the Gradio Interface
+demo = gr.Interface(
+    fn=generate_response,
+    inputs=gr.Textbox(lines=3, label="Enter your prompt here"),
+    outputs=gr.Code(language="json", label="Pydantic JSON Output"),
+    title="MediCore Fine-Tuned Qwen Bot (Pydantic Powered)"
+)
+
+demo.launch(share=True, debug=True)
+```
+
+---
+
 
 ### Strategy 2: Rendering in Gradio (not recommended for the mini project)
 

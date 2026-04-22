@@ -1,7 +1,7 @@
 # Homework: Project Refinement
 
 > [!IMPORTANT]  
-> - **Due Date:** [2025-05-06]
+> - **Due Date:** [2026-05-30]
 
 ---
 

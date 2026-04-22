@@ -1,318 +1,1037 @@
-# Activity 1: ANN Limitations for Image Classification
+# Lab: Fine-Tuning Qwen 2.5 with LoRA
 
-**Objective:**
+This is the longer reference version of the lab. It keeps the full explanations, alternatives, and appendix material while preserving the working code path used in the shorter version.
 
-This lab demonstrates the capabilities and limitations of a standard Artificial Neural Network (ANN) for image classification. We will:
+The mini project goal is not only to fine-tune a model. You are also expected to:
 
-1.  Briefly revisit the ANN's strong performance on the simple MNIST dataset.
-2.  Apply the **same** ANN architecture to the more complex CIFAR-10 dataset.
-3.  Observe and compare the performance difference.
-4.  Understand *why* ANNs struggle with complex image data, motivating the need for Convolutional Neural Networks (CNNs) which will be covered in Part 2.
+- adapt the workflow to your own dataset,
+- produce structured output,
+- and render or expose that output through Gradio.
 
-Concepts from the **Part 1 Summary** document (like Layers, Activation Functions, Sequential API, Loss Functions, Overfitting) will be applied and referenced.
-
----
-
-### Lab Steps:
-
-**Step 1: Import Libraries**
-
-*   Import necessary libraries: TensorFlow/Keras for model building, Matplotlib for plotting, NumPy for numerical operations, and Scikit-Learn for evaluation.
-
-```python
-import tensorflow as tf
-from tensorflow.keras import datasets, layers, models
-import matplotlib.pyplot as plt
-import numpy as np
-from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
-
-# Set random seeds for reproducibility
-np.random.seed(42)
-tf.random.set_seed(42)
-```
-
-**Step 2: Load Datasets (MNIST & CIFAR-10)**
-
-*   Load both datasets. MNIST will serve as a baseline demonstration, while CIFAR-10 will be our main test case for the ANN.
-*   Define the class names for CIFAR-10.
-
-```python
-# Load MNIST dataset
-(X_train_mnist, y_train_mnist), (X_test_mnist, y_test_mnist) = datasets.mnist.load_data()
-print("--- MNIST Loaded ---")
-print("MNIST Train shape:", X_train_mnist.shape) # (60000, 28, 28)
-
-# Load CIFAR-10 dataset
-(X_train_cifar, y_train_cifar), (X_test_cifar, y_test_cifar) = datasets.cifar10.load_data()
-print("\n--- CIFAR-10 Loaded ---")
-print("CIFAR-10 Train shape:", X_train_cifar.shape) # (50000, 32, 32, 3)
-
-# Define CIFAR-10 class names (index corresponds to label)
-classes_cifar = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
-print("CIFAR-10 Classes:", classes_cifar)
-```
-
-**Step 3: Explore Datasets**
-
-*   Visualize sample images from both datasets to understand their differences in complexity (grayscale vs. color, simple digits vs. varied objects).
-
-```python
-print("\n--- Sample MNIST Images ---")
-plt.figure(figsize=(10, 2))
-for i in range(5):
-    plt.subplot(1, 5, i + 1); plt.imshow(X_train_mnist[i], cmap='gray'); plt.title(f"Label: {y_train_mnist[i]}"); plt.axis('off')
-plt.suptitle("MNIST Samples (28x28 Grayscale)")
-plt.show()
-
-print("\n--- Sample CIFAR-10 Images ---")
-plt.figure(figsize=(10, 2))
-for i in range(5):
-    plt.subplot(1, 5, i + 1); plt.imshow(X_train_cifar[i]); plt.title(f"Class: {classes_cifar[y_train_cifar[i][0]]}"); plt.axis('off')
-plt.suptitle("CIFAR-10 Samples (32x32 Color)")
-plt.show()
-
-print("\nNotice the increased complexity in CIFAR-10 (color, varied objects, backgrounds).")
-```
-
-**Step 4: Preprocess Data**
-
-*   **Normalization:** Scale pixel values to the [0, 1] range for both datasets (refer to **Summary Sec 3.2**).
-*   **Label Reshaping:** Ensure CIFAR-10 labels are 1D (refer to **Summary Sec 3.2** explanation, even though MNIST labels are usually okay).
-
-```python
-print("\n--- Preprocessing Data ---")
-# Normalize MNIST
-X_train_mnist_norm = X_train_mnist / 255.0
-X_test_mnist_norm = X_test_mnist / 255.0
-print("MNIST normalization complete.")
-
-# Normalize CIFAR-10
-X_train_cifar_norm = X_train_cifar / 255.0
-X_test_cifar_norm = X_test_cifar / 255.0
-print("CIFAR-10 normalization complete.")
-
-# Reshape CIFAR-10 labels (from (N, 1) to (N,))
-y_train_cifar_flat = y_train_cifar.reshape(-1,)
-y_test_cifar_flat = y_test_cifar.reshape(-1,)
-print("CIFAR-10 labels reshaped:", y_train_cifar_flat.shape)
-```
-
-**Step 5: Define the ANN Architecture**
-
-*   Create a function to build our standard ANN model using the Keras `Sequential` API (refer to **Summary Sec 3.3**).
-*   This architecture includes:
-    *   A `Flatten` layer to convert the input image into a 1D vector.
-    *   A `Dense` hidden layer with `relu` activation (refer to **Summary Sec 2.5**).
-    *   A `Dense` output layer with `softmax` activation for multi-class classification (refer to **Summary Sec 2.5**).
-*   We will use this *same function* to create models for both MNIST and CIFAR-10, changing only the input shape.
-
-```python
-def build_ann_model(input_shape, num_classes, hidden_units=128):
-  """Builds a simple sequential ANN model."""
-  model = models.Sequential([
-      # Flatten layer converts image matrix to 1D vector
-      layers.Flatten(input_shape=input_shape),
-      # Dense hidden layer (fully connected)
-      layers.Dense(hidden_units, activation='relu'),
-      # Dense output layer (one neuron per class)
-      layers.Dense(num_classes, activation='softmax')
-  ], name=f"Simple_ANN_{hidden_units}hidden")
-  return model
-
-# Example: Define input shapes (Height, Width, [Channels])
-# Note: Flatten handles the multiplication internally based on input_shape
-input_shape_mnist = (28, 28)   # Grayscale, no channel needed for Flatten input_shape
-input_shape_cifar = (32, 32, 3) # Color image requires channel dimension
-
-# Example: Define number of output classes
-num_classes_mnist = 10
-num_classes_cifar = 10
-
-print("ANN builder function defined.")
-```
-
-**Step 6: Train & Evaluate ANN on MNIST (Baseline)**
-
-*   Build, compile, and train the ANN on the preprocessed MNIST data.
-*   Compile using `adam` optimizer and `sparse_categorical_crossentropy` loss (refer to **Summary Sec 3.4**).
-*   Evaluate its performance on the test set. This serves as our baseline showing ANN effectiveness on simpler image data.
-*   *Self-Check:* Try to predict the accuracy before revealing the result.
-
-```python
-print("\n--- ANN on MNIST (Baseline) ---")
-
-# Build the MNIST ANN model
-ann_mnist = build_ann_model(input_shape_mnist, num_classes_mnist)
-ann_mnist.compile(optimizer='adam',
-                  loss='sparse_categorical_crossentropy',
-                  metrics=['accuracy'])
-ann_mnist.summary()
-
-print("\nTraining ANN on MNIST...")
-# Train for a few epochs
-history_mnist = ann_mnist.fit(X_train_mnist_norm, y_train_mnist,
-                              epochs=5,
-                              batch_size=32,
-                              validation_split=0.1,
-                              verbose=1) # Show progress
-
-print("\nEvaluating ANN on MNIST Test Set...")
-# --- Try to evaluate yourself first! ---
-# What accuracy do you expect based on the summary/previous runs?
-# Use: ann_mnist.evaluate(X_test_mnist_norm, y_test_mnist)
-```
-
-<details>
-<summary>Click here to see MNIST evaluation code & result</summary>
-
-```python
-# Evaluate the trained MNIST model
-loss_mnist, accuracy_mnist = ann_mnist.evaluate(X_test_mnist_norm, y_test_mnist, verbose=0)
-print(f"\nMNIST ANN Test Accuracy: {accuracy_mnist:.4f}")
-print(f"MNIST ANN Test Loss: {loss_mnist:.4f}")
-# Expected output: Accuracy should be high (typically ~97-98%)
-```
-
-</details>
-
-**Step 7: Train & Evaluate SAME ANN on CIFAR-10 (Main Experiment)**
-
-*   Now, build, compile, and train the **exact same ANN architecture** (only changing the input shape) on the more complex CIFAR-10 data.
-*   Observe the training process and evaluate the final performance.
-*   *Self-Check:* How well do you expect this simple ANN to perform on CIFAR-10 compared to MNIST? Why?
-
-```python
-print("\n--- ANN on CIFAR-10 (Main Experiment) ---")
-
-# Build the CIFAR-10 ANN model using the SAME builder function
-ann_cifar = build_ann_model(input_shape_cifar, num_classes_cifar)
-ann_cifar.compile(optimizer='adam',
-                   loss='sparse_categorical_crossentropy', # Still integer labels
-                   metrics=['accuracy'])
-ann_cifar.summary() # Note the much larger number of params in Flatten/Dense due to 32x32x3 input
-
-print("\nTraining ANN on CIFAR-10...")
-# Train for potentially more epochs, though performance might plateau quickly
-history_cifar = ann_cifar.fit(X_train_cifar_norm, y_train_cifar_flat,
-                              epochs=10, # Train a bit longer
-                              batch_size=32,
-                              validation_split=0.1,
-                              verbose=1)
-
-print("\nEvaluating ANN on CIFAR-10 Test Set...")
-# --- Try to evaluate yourself first! ---
-# What accuracy do you expect now? Compare it to the MNIST result.
-# Use: ann_cifar.evaluate(X_test_cifar_norm, y_test_cifar_flat)
-```
-
-<details>
-<summary>Click here to see CIFAR-10 evaluation code & result</summary>
-
-```python
-# Evaluate the trained CIFAR-10 model
-loss_cifar, accuracy_cifar = ann_cifar.evaluate(X_test_cifar_norm, y_test_cifar_flat, verbose=0)
-print(f"\nCIFAR-10 ANN Test Accuracy: {accuracy_cifar:.4f}")
-print(f"CIFAR-10 ANN Test Loss: {loss_cifar:.4f}")
-# Expected output: Accuracy will be significantly lower than MNIST (likely 40-50%)
-```
-
-</details>
-
-**Step 8: Compare Performance & Discuss Limitations**
-
-*   Explicitly compare the test accuracies achieved by the *same ANN architecture* on MNIST vs. CIFAR-10.
-*   Relate the performance drop on CIFAR-10 to the inherent limitations of ANNs for image data discussed in **Summary Section VI**.
-
-```python
-print("\n--- Performance Comparison ---")
-
-# Ensure you have run the evaluate code inside the <details> sections above
-# If you encounter a NameError, go back and run the evaluate code in the hidden sections.
-try:
-    print(f"MNIST ANN Test Accuracy:      {accuracy_mnist:.4f}")
-except NameError:
-    print("MNIST accuracy variable ('accuracy_mnist') not found. Please run the evaluation in Step 6 <details>.")
-
-try:
-    print(f"CIFAR-10 ANN Test Accuracy:   {accuracy_cifar:.4f}")
-except NameError:
-    print("CIFAR-10 accuracy variable ('accuracy_cifar') not found. Please run the evaluation in Step 7 <details>.")
-
-print("\n--- Discussion ---")
-print("Observe the significant drop in accuracy when applying the same ANN to CIFAR-10.")
-print("This highlights the limitations of simple ANNs for complex image tasks:")
-print("1. Loss of Spatial Information: The Flatten layer discards the 2D/3D structure of pixels.")
-print("2. Parameter Inefficiency: Dense layers connect every input pixel to every neuron, leading")
-print("   to a very large number of parameters for images (compare model summaries).")
-print("3. Lack of Translation Invariance: The ANN learns features based on absolute pixel positions,")
-print("   making it sensitive to shifts or distortions in the object's location.")
-print("\nThese challenges motivate the need for architectures specifically designed for spatial data.")
-```
-
-**Step 9: Conclusion & Next Steps**
-
-*   Summary of the key finding: standard ANNs, while effective on simple datasets like MNIST, struggle with more complex image data like CIFAR-10 due to their inability to process spatial information efficiently.
-*   This limitation provides the motivation for Part 2, where we will introduce Convolutional Neural Networks (CNNs) as a solution designed to overcome these issues.
-
-```python
-print("\n--- Conclusion ---")
-print("This lab demonstrated that while ANNs can classify simple images like MNIST digits,")
-print("their performance significantly degrades on more complex, real-world image datasets")
-print("like CIFAR-10. This is primarily because they fail to leverage the spatial")
-print("structure inherent in images.")
-print("\n--- Next Steps ---")
-print("In Part 2, we will explore Convolutional Neural Networks (CNNs), an architecture")
-print("specifically developed to effectively process spatial data and achieve much")
-print("better performance on image recognition tasks.")
-```
-
-**Step 10: Discussion**
-
-Reflect on the steps performed in this lab and discuss the following questions with your group. You can use the Part 1 Summary document and Large Language Models (LLMs) to help explore concepts further, but try to formulate your own understanding first.
-
-1.  What are the key differences between the MNIST and CIFAR-10 datasets used in this lab (consider image size, [color channels](https://en.wikipedia.org/wiki/Channel_(digital_image)), and content complexity)?
-2.  Why was **normalization** (dividing pixel values by 255.0) applied to both datasets in Step 4? What issue might arise if we didn't normalize? (Refer to **Summary Sec 3.2**)
-3.  Explain the purpose of the `layers.Flatten` layer used as the first layer in the `build_ann_model` function (Step 5). Why is it necessary for a standard ANN processing image data? (Refer to **Summary Sec VI**)
-4.  The hidden layer in the ANN used `activation='relu'`. What does the ReLU activation function do, and why is it commonly used in hidden layers? (Refer to **Summary Sec 2.5**)
-5.  The output layer used `activation='softmax'`. What does Softmax do, and why is it suitable for the 10-class classification tasks (MNIST and CIFAR-10)? (Refer to **Summary Sec 2.5**)
-6.  The models were compiled using `loss='sparse_categorical_crossentropy'`. Why was this specific loss function chosen for these tasks? (Refer to **Summary Sec 3.4**)
-7.  What does the `optimizer='adam'` do during the `model.fit()` process? (Refer to **Summary Sec 3.4**)
-8.  Compare the number of trainable parameters shown in the `model.summary()` output for the MNIST ANN versus the CIFAR-10 ANN (Step 6 vs. Step 7). Why is the number much larger for the CIFAR-10 model, even though the hidden layer size (`hidden_units`) was the same?
-9.  What was the approximate test accuracy achieved by the ANN on MNIST (Step 6)?
-10. What was the approximate test accuracy achieved by the *same* ANN architecture on CIFAR-10 (Step 7)?
-11. Based on the results from questions 9 and 10, how well did the simple ANN generalize from the MNIST task to the more complex CIFAR-10 task?
-12. What are the main limitations of using a standard ANN (with Flatten and Dense layers) for image classification tasks, as highlighted by the performance difference observed? (Refer to **Summary Sec VI**)
-13. How does the concept of "loss of spatial information" relate to the `Flatten` layer?
-14. Why does the "parameter inefficiency" of Dense layers become a bigger problem for CIFAR-10 (32x32x3) compared to MNIST (28x28)?
-15. What is the primary goal of this lab activity in the context of learning about image recognition models?
+Because of that, fine-tuning, JSON output, and Gradio should be understood as one connected workflow.
 
 ---
 
+## Workflow at a glance
+
+In this lab, you will:
+
+1. prepare the Colab GPU environment,
+2. install the required libraries,
+3. load the starting model and tokenizer,
+4. test the starting model before training,
+5. load and format a dataset using the correct chat template,
+6. attach LoRA adapters,
+7. train the adapters,
+8. test the fine-tuned model,
+9. produce structured JSON output,
+10. connect the result to Gradio,
+11. optionally merge the adapter for deployment.
+
+> [!IMPORTANT]
+> The most important rule in this lab is consistency. The dataset format, training prompt structure, inference prompt structure, and output format must align.
+
+---
+
+### Prerequisite: Enable GPU in Google Colab
+
+Training language models on a CPU is too slow to be practical. Before starting, you must configure your Colab environment to use a Graphics Processing Unit (GPU).
+
+1. In the top menu, click **Runtime** > **Change runtime type**.
+2. Under **Hardware accelerator**, select **T4 GPU**.
+3. Click **Save**.
+
+---
+
+### Concept: Understanding Prompt Styles and Chat Templates
+
+Language models do not inherently understand the difference between a human's instruction and their own response. To give them conversational structure, they are trained using specific **control tokens** that define message boundaries and roles.
+
+Different models use entirely different formatting structures:
+
+*   **Llama** models often use `[INST]` and `[/INST]` tags.
+*   **Qwen** models utilize a format known as **ChatML**, which relies on tags like `<|im_start|>` to begin a message, `<|im_end|>` to close it, and role indicators like `user` or `assistant`.
+
+If you try to train or prompt a model using the wrong tags (for example, guessing generic tags like `<|user|>` and `<|assistant|>` on a Qwen model), the model treats them as random text rather than structural commands. This causes the model to lose the conversational context, often resulting in runaway text generation or severe hallucinations.
+
+To resolve this across different models, modern workflows use `tokenizer.apply_chat_template()`. This function takes a standardized dictionary of messages and automatically injects the exact control tokens the specific model was trained to recognize.
+
+---
+
+## Core workflow
+
+### Step 0: Install Dependencies
+
+Before running any code, you must install the necessary machine learning libraries into your Colab environment. Run this cell first:
+
+```python
+# [Cell 0] Install Dependencies
+!pip install -q transformers datasets peft accelerate huggingface_hub gradio
+```
+
+> [!TIP]
+> To check how much RAM is available in the container associated with your Colab Jupyter notebook, use this command:
+
+```python
+!free -h
+```
+
+---
+
+### Step 1: Environment Setup and Authentication
+
+Before diving into the code, it is important to note that **a Hugging Face token is not strictly required** to download public models like Qwen. However, if you do not provide one, the Hugging Face library will generate a warning message. Authenticating is a good practice as it suppresses these warnings and is mandatory if you ever decide to use restricted or private models (like Llama 3).
+
+To set this up, add your Hugging Face Access Token to the **Secrets** tab in Google Colab (the key icon on the left sidebar) and name it `HF_TOKEN`. Enable notebook access for this secret.
+
+```python
+#[Cell 1] Environment Setup & Authentication
+from google.colab import userdata
+from huggingface_hub import login
+import warnings
+
+# Suppress the specific warning about missing tokens
+warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub.utils._auth")
+
+try:
+    # Attempt to fetch the token from Colab's secure storage
+    hf_token = userdata.get('HF_TOKEN')
+
+    # Log into the Hugging Face Hub using the retrieved token
+    login(hf_token)
+    print("Authentication successful.")
+except userdata.SecretNotFoundError:
+    # If the token isn't found, smoothly continue without crashing
+    print("Notice: HF_TOKEN not found in Colab secrets. Proceeding without authentication.")
+```
+
+#### Code Explanation:
+
+*   `from google.colab import userdata`: Imports the specific Google Colab module used to securely access environment variables and API keys stored in the Secrets tab.
+*   `from huggingface_hub import login`: Imports the authentication function from the Hugging Face library.
+*   `warnings.filterwarnings(...)`: Tells Python to ignore the specific `UserWarning` triggered by the Hugging Face library when it detects an unauthenticated environment.
+*   `try...except`: A standard error-handling block. The code "tries" to find the `HF_TOKEN`. If the token is missing, it throws a `SecretNotFoundError`. The `except` block catches this specific error and prints a notice instead of halting the entire notebook.
+
 <details>
-<summary>Click for Sample Answers</summary>
-
-1.  **Differences:** MNIST has 28x28 pixel grayscale images (1 channel) of simple, centered digits. CIFAR-10 has 32x32 pixel color images ([3 channels](https://en.wikipedia.org/wiki/Channel_(digital_image)#RGB_images)) of more complex real-world objects with varied backgrounds and positions. CIFAR-10 is significantly more complex visually.
-2.  **Normalization:** It scales pixel values to a smaller range (0 to 1). Neural networks train more effectively and stably with smaller input values, preventing issues where large input values might lead to exploding gradients or slow convergence.
-3.  **Flatten Layer:** It converts the 2D (or 3D for color) image matrix into a 1D vector. Standard `Dense` layers in an ANN expect 1D input, so flattening is necessary to feed the image data into the fully connected network structure.
-4.  **ReLU:** Rectified Linear Unit outputs the input if it's positive (`max(0, x)`) and zero otherwise. It introduces non-linearity efficiently and helps prevent the vanishing gradient problem during training in deep networks.
-5.  **Softmax:** It converts the raw output scores (logits) from the 10 output neurons into a probability distribution where each output is between 0 and 1, and all 10 outputs sum to 1. This gives the model's predicted probability for each class.
-6.  **Loss Function:** `sparse_categorical_crossentropy` is used for multi-class classification when the true labels are provided as single integers (e.g., 0, 1, 2... 9) rather than one-hot encoded vectors. Both MNIST and CIFAR-10 labels were provided as integers in this lab.
-7.  **Optimizer ('adam'):** During training, the optimizer uses the calculated loss to determine how to adjust the model's internal parameters (weights and biases) to improve performance in the next iteration. Adam is an algorithm that adaptively adjusts the learning rate for each parameter.
-8.  **Parameter Count:** The `Flatten` layer output is much larger for CIFAR-10 (32\*32\*3 = 3072) than for MNIST (28\*28 = 784). Since the first `Dense` layer connects to *every* element of the flattened input, the number of connections (weights) between Flatten and the first Dense layer is significantly higher for CIFAR-10, resulting in many more trainable parameters overall.
-9.  **MNIST Accuracy:** The ANN typically achieves high accuracy on MNIST, often around **97-98%** after 5 epochs. (Actual value depends on the specific run).
-10. **CIFAR-10 Accuracy:** The *same* ANN architecture achieves significantly lower accuracy on CIFAR-10, often around **40-55%** after 10 epochs. (Actual value depends on the specific run).
-11. **Generalization:** The ANN generalizes *poorly* from the simple MNIST task structure to the more complex CIFAR-10 task. The high accuracy on MNIST doesn't translate to CIFAR-10 using this architecture.
-12. **ANN Limitations for Images:** 1) Loss of spatial information (due to Flattening), 2) Parameter inefficiency (Dense layers require too many weights for large inputs), 3) Lack of translation invariance (sensitive to object position).
-13. **Flatten & Spatial Loss:** The `Flatten` layer takes the grid of pixels (where adjacency matters) and arranges them into a long line, discarding the information about which pixels were originally neighbours horizontally, vertically, or diagonally.
-14. **Parameter Inefficiency & Size:** The flattened input vector for CIFAR-10 (3072) is about 4 times larger than for MNIST (784). Since the number of weights in the first Dense layer is roughly `(input_size * hidden_units)`, the parameter count scales linearly with the input size, becoming computationally expensive and prone to overfitting much faster for larger/color images.
-15. **Goal of Lab:** The primary goal is to **demonstrate the limitations** of standard ANNs for complex image classification and thereby **motivate the need for Convolutional Neural Networks (CNNs)**, which are designed to specifically address these limitations by preserving spatial information and using parameters more efficiently.
-
+<summary><b>Q&A: What exactly is the Hugging Face Hub?</b></summary>
+<br>
+The Hugging Face Hub is a central repository (similar to GitHub) but specifically designed for machine learning. It hosts models, datasets, and spaces. The `login()` function acts as your digital ID, allowing the code to pull files from the platform under your account.
 </details>
 
-***
+<details>
+<summary><b>Q&A: Why is it bad to just paste the API key directly into the code?</b></summary>
+<br>
+Hardcoding sensitive tokens (e.g., <code>login("hf_my_secret_key_123")</code>) is a major security risk. If you share your notebook or push the code to a public repository like GitHub, anyone can use your token to access your private data or consume your API quotas. Using Colab's <code>userdata</code> module keeps the key hidden in the environment.
+</details>
 
-**Visualizing RGB Channels with an Online Tool**
+---
 
-To get a better visual intuition of how an image is split into its Red, Green, and Blue components, you can use online tools. These tools often display each channel as a separate grayscale image, where brighter areas indicate higher intensity of that specific color in the original image. This can help solidify the concept of channels representing different color information.
+### Step 2: Load the Starting Model and Tokenizer
 
-For example, you can upload [an image](./img/apple.jpg) to a site like [Online Image Color Channel Separator](https://onlinetools.com/image/separate-image-color-channels) to see this separation visually.
+**What is a Tokenizer?** Neural networks cannot read text. The tokenizer translates text strings into numerical IDs (tokens) that the model can process mathematically, and later converts the model's numerical output back into human-readable text.
+
+```python
+#[Cell 2] Load Model and Tokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+
+# 1. Load and configure the Tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+
+# 2. Load and configure the Neural Network Model
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    device_map="cuda",
+    torch_dtype=torch.float16
+)
+
+model.config.use_cache = False
+```
+
+> [!NOTE]
+> `Qwen/Qwen2.5-1.5B-Instruct` is already an instruction-tuned model, not a raw foundation checkpoint. In this lab, it is the starting model that LoRA adapters are attached to.
+
+#### Code Explanation:
+
+*   `from transformers import AutoTokenizer, AutoModelForCausalLM`: Imports "Auto" classes. Instead of manually finding the specific code class for the Qwen architecture, these factory classes automatically detect the model type from the Hugging Face Hub and load the correct files.
+*   `import torch`: Imports PyTorch, the core machine learning library that handles the heavy mathematical tensor operations.
+*   `model_name = "Qwen/Qwen2.5-1.5B-Instruct"`: Defines the exact repository path on the Hugging Face Hub.
+*   `tokenizer = AutoTokenizer.from_pretrained(...)`: Downloads the tokenizer vocabulary and configuration files.
+*   `tokenizer.pad_token = tokenizer.eos_token`: During training, you pass multiple sentences to the model at once (a "batch"). Because sentences have different lengths, the shorter ones must be padded with blank tokens to form a perfect rectangle of data. Qwen does not have a dedicated "blank space" (pad) token, so we tell it to use the "End of Sentence" (`eos_token`) as the filler.
+*   `model = AutoModelForCausalLM.from_pretrained(...)`: Downloads the massive mathematical weight matrices of the language model.
+*   `device_map="cuda"`: Automatically routes the model weights to the GPU memory (CUDA) instead of the much slower CPU RAM.
+*   `torch_dtype=torch.float16`: Loads the model weights using 16-bit floating-point numbers instead of the standard 32-bit. This halves the amount of GPU memory (VRAM) required, allowing the model to fit on a free tier Colab GPU with almost no loss in accuracy.
+*   `model.config.use_cache = False`: Disables the "KV Cache." The cache is used during normal chatting to speed up text generation by remembering past tokens. However, during the training phase, this caching mechanism breaks the backpropagation process (how the model learns from errors).
+
+<details>
+<summary><b>Q&A: What does "Causal LM" mean in AutoModelForCausalLM?</b></summary>
+<br>
+"Causal Language Modeling" refers to the specific task of predicting the very next word (token) in a sequence based <i>only</i> on the words that came before it. It is "causal" because the future tokens cannot influence the past ones. This is the underlying architecture for all modern generative AI models like ChatGPT, Llama, and Qwen.
+</details>
+
+<details>
+<summary><b>Q&A: What happens if I forget to set `device_map="cuda"`?</b></summary>
+<br>
+If you omit this, PyTorch will default to loading the massive model weights into your system's regular CPU RAM. Attempting to fine-tune a model on a CPU is astronomically slow—what takes minutes on a GPU could take weeks on a CPU.
+</details>
+
+<details>
+<summary><b>Q&A: Why do we use `torch_dtype` instead of `dtype`?</b></summary>
+<br>
+In pure PyTorch, you often see <code>dtype</code> used to define data types. However, Hugging Face's <code>from_pretrained()</code> method specifically expects the argument to be named <code>torch_dtype</code>. Using just <code>dtype</code> might be ignored by the function, resulting in the model loading in massive 32-bit precision and crashing your Colab RAM.
+</details>
+
+---
+
+### Step 2b: Baseline Inference (Before Fine-Tuning)
+
+Before training, ask the model a target question. Because the starting model has never seen `MediCore.json`, it will likely give a generic or hallucinated answer about MediCore Hospital. This establishes a baseline to prove that fine-tuning changed the model's behavior.
+
+```python
+# [Cell 2b] Baseline Inference (Before Fine-Tuning)
+messages = [{"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"}]
+
+# Format the prompt
+text = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
+
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+# Generate an answer using the untrained starting model
+output = model.generate(
+    **inputs,
+    max_new_tokens=50,
+    do_sample=False,
+    eos_token_id=tokenizer.eos_token_id
+)
+
+# Extract and print only the generated response
+generated_ids = output[0][inputs.input_ids.shape[1]:]
+print("STARTING MODEL ANSWER:\n", tokenizer.decode(generated_ids, skip_special_tokens=True))
+```
+
+---
+
+### Step 3: Load and Preprocess the Dataset
+
+**To get the dataset, you have two options:** You can either manually upload your `MediCore.json` file to the Colab file system (using the folder icon on the left sidebar), or let the code automatically download it for you. This step fetches the data and maps it into the standardized ChatML template.
+
+```python
+# Automatically download the dataset if it hasn't been uploaded manually
+!wget -nc -q https://github.com/ML-Course-2026/session6/raw/refs/heads/main/material/datasets/MediCore.json
+```
+
+*  `-nc` (no-clobber) ensures that if you manually uploaded your own version of `MediCore.json`, the command will not overwrite it.
+*  `-q` (quiet) prevents it from printing a messy download progress bar in the Colab output.
+
+```python
+#[Cell 3] Dataset Loading and Preprocessing
+from datasets import load_dataset
+
+raw_data = load_dataset("json", data_files="MediCore.json")
+
+def preprocess(sample):
+    messages = [
+        {"role": "user", "content": sample['prompt']},
+        {"role": "assistant", "content": sample['completion']}
+    ]
+
+    # Automatically applies <|im_start|> and <|im_end|> ChatML tags
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=False
+    )
+
+    tokenized = tokenizer(
+        text,
+        truncation=True,
+        #max_length=256,
+        padding=False
+    )
+    # Explicitly create labels for loss calculation
+    #tokenized["labels"] = tokenized["input_ids"].copy()
+    return tokenized
+
+data = raw_data.map(
+    preprocess,
+    remove_columns=raw_data["train"].column_names
+)
+```
+
+#### Code Explanation:
+
+*   `load_dataset("json", ...)`: Reads your local JSON file and converts it into a highly efficient Hugging Face `Dataset` object.
+*   `messages = [...]`: Structures your raw data into a universal dictionary format consisting of "roles" (who is speaking) and "content" (what they are saying).
+*   `tokenizer.apply_chat_template(...)`: Takes the generic `messages` list and injects the specific hidden control tokens that Qwen expects (like `<|im_start|>` and `<|im_end|>`).
+*   `tokenize=False`: Tells the template function to return a raw text string rather than converting it into numbers immediately. We do the numerical conversion in the very next step.
+*   `tokenizer(..., truncation=True, padding=False)`: Converts the correctly formatted text string into numerical IDs. `truncation=True` ensures that if a sentence exceeds the model's maximum context length, the excess is chopped off to prevent crashes.
+*   `raw_data.map(...)`: Instead of using a slow `for` loop, `.map()` applies your `preprocess` function to every single row in the dataset simultaneously using optimized C++ backend code.
+*   `remove_columns=raw_data["train"].column_names`: Deletes the original human-readable text columns (like `prompt` and `completion`). The neural network only understands the new numerical token IDs, so keeping the text columns would just waste memory.
+
+> [!IMPORTANT]
+> This is the main customization point for your own project. In most cases, the most important change is not the model-loading code. It is the dataset mapping in `preprocess(sample)`.
+
+#### If you use your own dataset: exact cells to modify
+
+- The dataset download cell before Cell 3: remove or replace the `wget` command if you are not using `MediCore.json`.
+- Cell 2b: replace the baseline question.
+- Cell 3: replace the filename and the field mapping inside `preprocess(sample)`.
+- Cell 5: adjust training settings if your dataset size or Colab memory budget is different.
+- Cell 7: replace the test prompt.
+- Cells 9 to 12: adapt the JSON schema and Gradio behavior for your project.
+
+<details>
+<summary><b>Q&A: Why do we use `padding=False` here if the model requires batches of identical length?</b></summary>
+<br>
+We set <code>padding=False</code> here because we will use <b>Dynamic Padding</b> later. If we padded everything now, every single sentence in the dataset would be padded with thousands of blank tokens to match the absolute longest sentence in the entire dataset, wasting enormous amounts of RAM. Dynamic padding (handled in Step 5) only pads sentences to match the longest sentence <i>in the current tiny batch</i>.
+</details>
+
+<details>
+<summary><b>Q&A: Why is `add_generation_prompt=False` used during training?</b></summary>
+<br>
+The generation prompt adds the "assistant's turn to speak" header at the very end of the text. During training, we are showing the model a completed transcript of both the user's question and the assistant's answer, so we do not need a prompt at the end asking the model to generate anything new.
+</details>
+
+---
+
+### Step 4: Configure PEFT and LoRA Adapters
+
+**What is PEFT?**
+PEFT (Parameter-Efficient Fine-Tuning) is both an umbrella concept and an official Hugging Face library. Instead of updating every single parameter in a massive neural network (which requires supercomputers), PEFT methods freeze the original model and only train a tiny fraction of new parameters. The `peft` library handles all the complex PyTorch code required to do this automatically.
+
+**What is LoRA?** Large Language Models possess billions of parameters. Updating all of them simultaneously (Full Fine-Tuning) requires immense computing power and VRAM. Low-Rank Adaptation (LoRA) is a technique that freezes the original model weights and injects small, trainable "adapter" matrices into specific layers (like the attention mechanism's `q_proj` and `v_proj`). You achieve ~90% of the quality of full fine-tuning while training only ~1% of the parameters. LoRA (Low-Rank Adaptation) is the most popular specific technique *inside* the PEFT library.
+
+```python
+# [Cell 4] LoRA Configuration
+from peft import LoraConfig, get_peft_model, TaskType
+
+lora_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    bias="none"
+)
+
+model = get_peft_model(model, lora_config)
+```
+
+#### Code Explanation:
+
+*   `TaskType.CAUSAL_LM`: Tells the PEFT (Parameter-Efficient Fine-Tuning) library that we are training a model to predict the next word (Causal Language Modeling), as opposed to a classification or translation model.
+*   `r=16`: The "rank" of the LoRA matrices. This dictates the "brain capacity" of the adapter. A rank of 8 or 16 is standard. Higher ranks (like 64) can learn more complex patterns but use more VRAM and are prone to overfitting.
+*   `lora_alpha=32`: The scaling factor. This dictates how strongly the new LoRA weights influence the original starting model. A standard rule of thumb is to set `alpha` to double the `r` value.
+*   `target_modules=[...]`: Specifies exactly which internal mathematical layers of the transformer to attach the adapters to. Targeting all linear layers (Q, K, V, O, and MLP projections) yields vastly superior results compared to just targeting attention layers.
+*   `get_peft_model(model, lora_config)`: Wraps the massive, frozen starting model and the tiny, trainable LoRA matrices together into a single manageable object.
+
+<details>
+<summary><b>Q&A: What does `bias="none"` mean?</b></summary>
+<br>
+In neural networks, calculations usually follow the formula <code>y = (weights * input) + bias</code>. Setting <code>bias="none"</code> tells LoRA not to train or modify any bias parameters. This saves memory and keeps the training focused purely on the weight matrices, which is usually sufficient and more stable for LoRA.
+</details>
+
+<details>
+<summary><b>Q&A: Can we fine-tune a larger model (like 8B) on the Colab Free Tier? (What is QLoRA?)</b></summary>
+<br>
+With standard LoRA (like we used above), no. The Colab free tier provides 15 GB of VRAM. A 1.5B model takes ~3 GB to load, which fits easily. However, an 8B parameter model (like Llama-3 8B) takes ~15 GB just to load the weights in 16-bit precision, causing an Out of Memory (OOM) crash the moment training starts.
+<br><br>
+To train larger models for free, you use a technique called <b>QLoRA (Quantized LoRA)</b>. With QLoRA, you use the <code>bitsandbytes</code> library to compress the massive starting model down to 4-bit precision (shrinking an 8B model from ~15 GB down to ~5 GB). The starting model remains frozen in 4-bit, while the PEFT library attaches standard 16-bit LoRA adapters on top. This allows you to fine-tune massive models comfortably within Colab's 15 GB limit.
+</details>
+
+---
+
+### Step 5: Configure Training Arguments and Execute Training
+
+**Understanding the Step Count:**
+If your output shows `1770` steps completed, this number is a direct mathematical result of your dataset size, batch size, and epochs.
+The formula is: `Total Steps = (Dataset Size ÷ Batch Size) × Epochs`.
+If we assume the batch size is `2` and epochs are `15`:
+`1770 = (Dataset Size ÷ 2) × 15` -> `118 = Dataset Size ÷ 2` -> `Dataset Size = 236`.
+This means a dataset of exactly 236 lines will result in exactly 1,770 training steps under these parameters.
+
+```python
+#[Cell 5] Training Setup and Execution
+from transformers import DataCollatorForLanguageModeling, TrainingArguments, Trainer
+
+# Let the collator handle padding + labels
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False
+)
+
+# Split 10% of the data for validation
+split = data["train"].train_test_split(test_size=0.1)
+train_dataset = split["train"]
+eval_dataset = split["test"]
+
+training_args = TrainingArguments(
+    output_dir="./results",
+    num_train_epochs=5,
+    learning_rate=2e-4,
+
+    per_device_train_batch_size=1,      # ↓ reduce to avoid OOM
+    gradient_accumulation_steps=2,      # keeps effective batch size
+
+    fp16=True,                          # ↓ big memory saver
+
+    logging_steps=5,
+    eval_strategy="epoch",
+    lr_scheduler_type="cosine",
+    remove_unused_columns=False
+)
+
+# IMPORTANT: enable memory savings
+model.gradient_checkpointing_enable()
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
+    data_collator=data_collator
+)
+
+trainer.train()
+
+trainer.save_model("./my_qwen")
+tokenizer.save_pretrained("./my_qwen")
+```
+
+#### Code Explanation:
+
+*   `DataCollatorForLanguageModeling`: Acts as the bridge between your dataset and the training loop. It grabs `per_device_train_batch_size` sentences at a time and dynamically pads the shorter one with the `eos_token` so they form a perfect mathematical matrix.
+*   `mlm=False`: Disables "Masked Language Modeling". MLM is used by models like BERT to fill in blanks in the middle of sentences. Generative models like Qwen only predict the *next* word, so MLM must be `False`.
+*   `num_train_epochs=5`: An "epoch" is one complete pass over your entire dataset. Because LoRA only trains a tiny fraction of the model, and because your dataset is small, you need to show the data to the model multiple times for it to memorize the new facts.
+*   `learning_rate=2e-4`: Dictates how large the mathematical adjustments are during training. LoRA adapters initialize with tiny weights, so they require a high learning rate (like `0.0002`) to learn effectively compared to full fine-tuning (which usually uses `0.00002`).
+*   `per_device_train_batch_size=1`: Determines how many examples are processed simultaneously. A batch size of 1 or 2 keeps VRAM usage low enough to fit on a free Colab GPU.
+*   `Trainer(...)`: The Hugging Face utility that handles all the complex PyTorch training loops, backpropagation, and loss calculations automatically.
+*   `trainer.save_model(...)`: This is critical. Because we used PEFT, this command **does not save the massive full starting-model checkpoint**. It only saves the tiny LoRA adapter weights (usually a few megabytes) into the `./my_qwen` folder.
+*   `remove_unused_columns=False`: By default, the Hugging Face Trainer automatically deletes any dataset columns that do not directly match the model's expected inputs. Because our mapping function already handled this, setting it to `False` prevents the Trainer from accidentally deleting crucial tokenized data before training starts.
+*   `lr_scheduler_type="cosine"`: Slowly reduces the learning rate as training progresses. This prevents the model from taking massive mathematical "steps" near the end of training, helping it settle on the exact correct weights without overshooting.
+
+> [!NOTE]
+> In Session 5, the same workflow ran on Google Colab Free Tier without an out-of-memory error when `per_device_train_batch_size=2` was used. In this longer version, `per_device_train_batch_size=1` is kept as the safer default. If your Colab runtime has enough available VRAM, you can try `per_device_train_batch_size=2`.
+
+**NOTE ON OVERFITTING**
+
+This dataset is relatively small, which makes the model prone to overfitting. As a result:
+
+- Training loss will continue to decrease
+- Validation loss may start increasing very early (after 1–2 epochs)
+
+This is expected behavior for small datasets. We rely on early stopping or fewer epochs to capture the best model.
+
+<details>
+<summary><b>Q&A: Why do we save the tokenizer at the end?</b></summary>
+<br>
+We save the tokenizer (<code>tokenizer.save_pretrained</code>) alongside the model so that when you load your adapter later, you are guaranteed to be using the exact same vocabulary, special tokens, and ChatML templates that you used during training.
+</details>
+
+<details>
+<summary><b>Q&A: What is `logging_steps=5`?</b></summary>
+<br>
+This tells the Trainer how often to print the training loss (how wrong the model's current predictions are) to the screen. If set to 25, it prints an update every 25 steps. Seeing the loss slowly decrease over time proves the model is actually learning.
+</details>
+
+---
+
+### Step 6: Load the Fine-Tuned Model
+
+Once training is complete, the LoRA adapters must be loaded alongside the starting model. This cell simulates what you would do if you restarted your Colab notebook and wanted to load your saved work.
+
+> [!NOTE]
+> If you have NOT restarted your runtime, skip this step. Your model is already in memory from Step 5.
+
+```python
+# [Cell 6] Load Model for Testing
+from peft import PeftModel, PeftConfig
+
+path = "./my_qwen"
+config = PeftConfig.from_pretrained(path)
+
+# 1. Load the original starting-model checkpoint
+base_model = AutoModelForCausalLM.from_pretrained(
+    config.base_model_name_or_path,
+    device_map="cuda",
+    torch_dtype=torch.float16
+)
+
+# 2. Attach your tiny, fine-tuned adapter to the starting model
+model = PeftModel.from_pretrained(base_model, path)
+
+# 3. Re-enable caching for faster inference speeds
+model.config.use_cache = True
+```
+
+#### Code Explanation:
+
+*   `PeftConfig.from_pretrained(path)`: Reads the configuration file saved in your `./my_qwen` folder to determine exactly which starting model (e.g., `Qwen2.5-1.5B`) these adapters were trained on.
+*   `AutoModelForCausalLM.from_pretrained(...)`: Reloads the massive original model parameters into GPU memory.
+*   `PeftModel.from_pretrained(base_model, path)`: This is the magic of LoRA. It takes the heavy starting model and dynamically "snaps on" your tiny, fine-tuned adapter matrices.
+*   `model.config.use_cache = True`: During training (Step 2), we disabled the KV Cache because it interferes with backpropagation. Now that we are purely generating text (inference), we turn it back on to drastically speed up response times.
+
+<details>
+<summary><b>Q&A: Why do we have to load the starting model again? Why didn't `trainer.save_model` save everything?</b></summary>
+<br>
+Because we used LoRA, <code>trainer.save_model</code> only saved the tiny adapter weights (the "diff" or changes learned during training), which are usually just a few megabytes. It does not duplicate the full starting-model checkpoint to save disk space. Therefore, to run the model, you must load the foundation (the starting model) and then attach the roof (your LoRA adapter).
+</details>
+
+---
+
+### Step 7: Test the Fine-Tuned Model
+
+This step tests the model using the proper `ChatML` format and greedy decoding to retrieve the exact factual data injected during training.
+
+```python
+# [Cell 7] Inference Execution
+messages =[ {"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"} ]
+
+# Format the text with ChatML tags and generation prompt
+text = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
+
+# Convert text to tensor numbers and move to GPU
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+# Generate the output
+output = model.generate(
+    **inputs,
+    max_new_tokens=100,
+    do_sample=False,
+    eos_token_id=tokenizer.eos_token_id
+)
+
+# Strip out the input prompt so we only see the newly generated answer
+generated_ids = output[0][inputs.input_ids.shape[1]:]
+print("FINE-TUNED ANSWER:\n", tokenizer.decode(generated_ids, skip_special_tokens=True))
+```
+
+#### Code Explanation:
+
+*   `add_generation_prompt=True`: This is a critical parameter for inference. It appends the `<|im_start|>assistant\n` control token to the very end of your prompt. This acts as a trigger, telling the model, "The user is done speaking; it is now your turn to reply."
+*   `return_tensors="pt"`: Tells the tokenizer to output PyTorch tensors (the mathematical arrays used by the GPU) instead of standard Python lists.
+*   `.to(model.device)`: Moves the input tensors to the same location as the model (the GPU). If the model is on the GPU but the input text is on the CPU, the code will crash.
+*   `model.generate(...)`: The core function that triggers the neural network to start predicting words one by one.
+*   `max_new_tokens=100`: Puts a hard limit on the response length so the model does not generate endless text if it gets confused.
+*   `do_sample=False`: Disables "creative" random generation (Greedy Decoding). It forces the model to pick the single most mathematically probable word at every step.
+*   `output[0][inputs.input_ids.shape[1]:]`: The `generate` function actually returns the *entire* conversation (your prompt + the answer). This complex-looking slice array math cuts off the original prompt from the output tensor so you only print the brand new tokens.
+*   `skip_special_tokens=True`: When decoding the numbers back into human text, this hides the ugly `<|im_start|>` and `<|im_end|>` tags from the final printed output.
+
+<details>
+<summary><b>Q&A: Why is `do_sample=False` recommended for testing the output?</b></summary>
+<br>
+Setting <code>do_sample=False</code> enables "greedy decoding." When evaluating if a model successfully memorized specific facts during fine-tuning (like a specific hospital staff member or department name), you do not want it to be "creative" or roll dice to pick alternative words. Greedy decoding removes randomness and provides a direct reflection of what the model actually learned.
+</details>
+
+<details>
+<summary><b>Q&A: What does `inputs.input_ids.shape[1]` do mathematically?</b></summary>
+<br>
+<code>inputs.input_ids</code> is an array containing your prompt (e.g., 20 tokens long). The `.shape[1]` gets the exact length of that prompt array (20). The slice operator <code>[20:]</code> tells Python to ignore the first 20 tokens of the model's final output and only give us the tokens generated from position 21 onwards.
+</details>
+
+---
+
+## Core project extension: structured JSON and Gradio
+
+### Concept: Ensuring Structured Outputs (Markdown or JSON)
+
+When integrating a language model into a user interface like **Gradio**, you often need the output to be strictly formatted.
+
+*   **Markdown** is ideal if you want Gradio to render rich text (bolding, lists, tables).
+*   **JSON** is ideal if you want Gradio (or another Python script) to programmatically parse the response into dictionaries and variables.
+
+Language models are pattern matchers. To guarantee they output a specific format, you must combine **System Prompts** with **Dataset Formatting**.
+
+> [!IMPORTANT]
+> For the mini project, JSON output and Gradio are part of the required path, not side material.
+
+### Strategy 1: Utilize System Prompts
+
+A **System Prompt** is a special set of instructions given to the model before the user even speaks. It dictates the model's persona and absolute rules. Qwen 2.5 is heavily optimized to obey system prompts.
+
+To ensure formatted output, you must inject this system rule during **both training (Step 3) and inference (Step 7)**.
+
+Here is how you update your inference code (from Step 7) to enforce JSON output using a system role:
+
+```python
+#  [Cell 9] [Modified Inference] Enforcing JSON Output
+messages = [
+    # 1. Add a system prompt with strict formatting rules
+    {"role": "system", "content": "You are a helpful assistant. You must ONLY answer in valid JSON format. Do not include any plain text outside the JSON."},
+
+    # 2. Add the user prompt
+    {"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"}
+]
+
+# Apply the ChatML template (the tokenizer automatically handles the system role)
+text = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
+
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+output = model.generate(
+    **inputs,
+    max_new_tokens=100,
+    do_sample=False,
+    eos_token_id=tokenizer.eos_token_id
+)
+
+generated_ids = output[0][inputs.input_ids.shape[1]:]
+response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+print(response_text)
+```
+
+We also need to inject this system rule during training (Step 3):
+
+```python
+# How to update Step 3's preprocess function to include a system prompt:
+def preprocess(sample):
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant. You must ONLY answer in valid JSON format."},
+        {"role": "user", "content": sample['prompt']},
+        {"role": "assistant", "content": sample['completion']}
+    ]
+    # ... rest of function unchanged
+```
+
+---
+
+### Model-controlled JSON output (via system prompt)
+
+This version relies entirely on the **model following instructions**.
+
+* A strict **system prompt** tells the model to output JSON.
+* If the model was trained well, it will follow the format.
+* If not, the output may break (invalid JSON, extra text, etc.).
+
+- **Key idea:** You are controlling structure through *prompting*, not code.
+- **Tradeoff:** Simple to implement, but **not reliable** in production.
+
+```python
+#  [Cell 10]
+import gradio as gr
+
+# 1. Define the function that Gradio will call when a user submits a prompt
+def generate_response(user_prompt):
+    messages = [
+        # Improved System Prompt: Give the model an exact JSON structure to follow
+        {
+            "role": "system",
+            "content": 'You are a helpful assistant. You must ONLY answer in valid JSON format using the following structure: {"answer": "your detailed response here"}'
+        },
+        {"role": "user", "content": user_prompt}
+    ]
+
+    # Format the text with ChatML tags
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    # Convert text to tensor numbers and move to GPU
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    # Generate the output
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    # Strip out the input prompt
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+    response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    return response_text
+
+# 2. Build the Gradio Interface
+demo = gr.Interface(
+    fn=generate_response,                      # The function to run
+    inputs=gr.Textbox(
+        lines=3,
+        placeholder="e.g. Who leads the neurology department at MediCore Hospital?",
+        label="Enter your prompt here"
+    ),
+    outputs=gr.Textbox(label="Model Output"),  # Where the output will show
+    title="MediCore Fine-Tuned Qwen Bot",
+    description="Ask questions about MediCore hospital. The model is instructed to reply in JSON format."
+)
+
+# 3. Launch the app (share=True creates a public link you can open)
+demo.launch(share=True, debug=True)
+```
+
+---
+
+### Python-enforced JSON wrapper (more reliable)
+
+This version assumes the model **cannot be trusted to format output correctly**.
+
+* The model generates plain text.
+* Python wraps that text into a valid JSON structure using `json.dumps()`.
+
+- **Key idea:** Structure is enforced *after* generation.
+- **Advantage:** Always produces valid JSON
+- **Limitation:** The model is unaware of the structure (no schema intelligence)
+
+> [!TIP]
+> For the mini project, this is the safest default path if you want predictable JSON output with the fewest surprises.
+
+```python
+#  [Cell 11]
+import gradio as gr
+import json
+
+def generate_response(user_prompt):
+    # Removed the system prompt since the model wasn't trained to use one
+    messages = [
+        {"role": "user", "content": user_prompt}
+    ]
+
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+    response_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    # --- PYTHON JSON WRAPPER ---
+    # We take the raw text and force it into a JSON dictionary
+    json_output = json.dumps({"answer": response_text}, indent=4)
+
+    return json_output
+
+demo = gr.Interface(
+    fn=generate_response,
+    inputs=gr.Textbox(lines=3, label="Enter your prompt here"),
+    outputs=gr.Code(language="json", label="JSON Output"), # Changed output to code block
+    title="MediCore Fine-Tuned Qwen Bot"
+)
+
+demo.launch(share=True, debug=True)
+```
+
+---
+
+### Pydantic-structured output (best practice)
+
+This is the most robust and scalable method.
+
+* A **Pydantic schema** defines exactly what the output should look like.
+* The model still generates raw text, but:
+
+  * It is inserted into a structured object
+  * The structure is validated automatically
+
+**Key idea:** Treat model output like data that must conform to a schema.
+
+**Advantages:**
+
+* Guaranteed structure
+* Type validation
+* Easy to extend (add fields like `confidence`, `sources`, etc.)
+
+> **Best for:** APIs, production systems, and real applications
+
+```python
+#  [Cell 12]
+import gradio as gr
+from pydantic import BaseModel, Field
+
+# 1. Define your strict Pydantic Schema
+class HospitalResponse(BaseModel):
+    # You can add as many fields as you want here
+    answer: str = Field(description="The main text answer to the user's question")
+    model_version: str = Field(default="Qwen2.5-1.5B-MediCore", description="The model used")
+
+def generate_response(user_prompt):
+    messages = [
+        {"role": "user", "content": user_prompt}
+    ]
+
+    text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
+
+    inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+    # Generate the text
+    output = model.generate(
+        **inputs,
+        max_new_tokens=150,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    generated_ids = output[0][inputs.input_ids.shape[1]:]
+
+    # 1. Get the RAW plain text from the model
+    raw_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    # 2. Pass the raw text into your Pydantic model
+    structured_response = HospitalResponse(answer=raw_text)
+
+    # 3. Use Pydantic to dump it into a perfect JSON string
+    json_output = structured_response.model_dump_json(indent=4)
+
+    return json_output
+
+# Build the Gradio Interface
+demo = gr.Interface(
+    fn=generate_response,
+    inputs=gr.Textbox(lines=3, label="Enter your prompt here"),
+    outputs=gr.Code(language="json", label="Pydantic JSON Output"),
+    title="MediCore Fine-Tuned Qwen Bot (Pydantic Powered)"
+)
+
+demo.launch(share=True, debug=True)
+```
+
+---
+
+### Strategy 2: Rendering in Gradio (not recommended for the mini project)
+
+Once your model outputs the correct format, Gradio makes it very simple to use.
+
+*   **For Markdown:** Gradio's standard `gr.Chatbot()` or `gr.Markdown()` components parse and render Markdown natively. If your model outputs `**Hello**`, Gradio will automatically display it as **Hello**. You do not need to write any extra code.
+*   **For JSON:** If your model outputs a JSON string, you can use Python's built-in `json` library to parse it inside your Gradio logic before displaying it.
+
+```python
+# Pseudo-code for Gradio JSON parsing
+import json
+import gradio as gr
+
+def generate_response(user_input):
+    # ... (Run model inference here) ...
+    raw_output = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+    try:
+        # Convert the text string into a Python dictionary
+        parsed_data = json.loads(raw_output)
+        return f"The {parsed_data['department']} department is led by {parsed_data['head']}."
+    except json.JSONDecodeError:
+        return "Error: The model did not output valid JSON."
+```
+
+### Concept Q&A
+
+<details>
+<summary><b>Q: What happens if the model outputs a mix of JSON and conversational text (e.g., "Here is your JSON: { ... }")?</b></summary>
+<br>
+This is a common issue called "chatty behavior." If a model outputs text outside the brackets, Python's <code>json.loads()</code> will crash with a JSONDecodeError. To prevent this, your System Prompt must explicitly say "Do not include any plain text outside the JSON," and your training dataset's <code>completion</code> fields must consist <i>only</i> of the JSON payload, with zero introductory text.
+</details>
+
+<details>
+<summary><b>Q: Can I force the model to output JSON without fine-tuning?</b></summary>
+<br>
+Yes, mostly. Advanced base models like Qwen 2.5 follow System Prompts very well. By simply adding the System Prompt from Strategy 1, the model will likely wrap its base knowledge in JSON. However, if you are teaching it <i>new</i> facts (like MediCore department heads or staff details), you must still fine-tune it. Combining fine-tuning (with JSON-structured completion data) and a strict JSON system prompt yields a near 100% success rate.
+</details>
+
+<details>
+<summary><b>Q: Does Hugging Face have a built-in "JSON Mode"?</b></summary>
+<br>
+Yes, modern versions of the Transformers library support advanced "Structured Generation" using a <code>GenerationConfig</code> parameter. However, this relies on checking the validity of tokens at every single step of generation, which slows down inference. For a basic Colab lab, relying on training data patterns and system prompts is the most efficient and educational approach.
+</details>
+
+---
+
+## Appendices
+
+### Appendix A: Optional merge for deployment (Cell 8)
+
+Loading the starting model and the adapter separately is fine for testing. However, if you want to deploy this model to an app or UI, it is standard practice to fuse the LoRA weights permanently into the starting model.
+
+```python
+# [Cell 8] Merge and Save
+# Fuse the adapter weights with the starting model mathematically
+merged_model = model.merge_and_unload()
+
+# Save the unified, standalone model
+merged_model.save_pretrained("./my_qwen_merged")
+tokenizer.save_pretrained("./my_qwen_merged")
+print("Model successfully merged and saved!")
+```
+
+#### Code Explanation:
+
+*  `model.merge_and_unload()`: Mathematically adds the LoRA adapter weights directly into the corresponding starting-model weight matrices. The adapter is then discarded. The result is a single standalone model with no PEFT dependency — simpler to deploy.
+*  `merged_model.save_pretrained(...)`: Saves the full merged model (starting model + adapter fused). Unlike `trainer.save_model`, this saves the **entire model** (~3 GB), not just the adapter.
+
+---
+
+### Appendix B: Advanced Concepts Q&A
+
+<details>
+<summary><b>Q: How do we estimate the VRAM needed for fine-tuning, and when can we use the Colab Free Tier?</b></summary>
+<br>
+To estimate VRAM, look at the parameter count and data precision.
+<ul>
+<li><b>Weights:</b> The Qwen 1.5B model has 1.5 billion parameters. Loaded in 16-bit precision (FP16/BF16), each parameter takes 2 bytes. This requires ~3 GB of VRAM just to load the model.</li>
+<li><b>Training Overhead:</b> Fine-tuning requires extra memory for optimizer states, gradients, and activations. Standard fine-tuning triples the VRAM requirement. However, using <b>LoRA</b> severely reduces this, adding only about 1-2 GB of overhead depending on batch size.</li>
+</ul>
+<b>Colab Free Tier:</b> Google Colab provides a T4 GPU with 15 GB of VRAM. Because our total requirement is around 5 GB, <b>this fits easily within the free tier</b>.
+<br><br>
+<b>When it fails:</b> If you attempt to fine-tune a 7B parameter model or larger, loading the weights alone takes ~14 GB in 16-bit. Adding training overhead pushes it past the 15 GB limit, resulting in an Out Of Memory (OOM) error. In those cases, you must rent a larger GPU (like an A100) or use quantization.
+</details>
+
+<details>
+<summary><b>Q: Can we fine-tune quantized models?</b></summary>
+<br>
+<b>Directly: No.</b> Standard fine-tuning uses an algorithm called backpropagation, which calculates precise mathematical gradients to update the model weights. Quantized models (like GGUF or AWQ formats) have had their weights heavily compressed and rounded (e.g., from 16-bit decimals to 4-bit integers). Because of this severe loss in precision, you cannot calculate or apply standard gradients directly to quantized weights.
+<br><br>
+<i>Note: There is a workaround called <b>QLoRA</b>, where you load the base model in 4-bit quantization (frozen) but attach 16-bit LoRA adapters on top. The adapter learns while the base quantized model acts as a read-only reference.</i>
+</details>
+
+<details>
+<summary><b>Q: What is the difference between Instruct models and Foundation (Base) models for fine-tuning?</b></summary>
+<br>
+<ul>
+<li><b>Foundation/Base Models:</b> These are raw predictive models trained on huge dumps of internet text. If you give them a prompt like "What is the capital of France?", they might output "What is the capital of Germany?" because they are simply completing a pattern of text. Fine-tuning a base model means you must teach it <i>both</i> the information AND how to converse.</li>
+<li><b>Instruct/Chat Models:</b> These models (like the one used in this lab) have already been heavily fine-tuned by their creators to understand Q&A structures, follow system prompts, and act safely. When you fine-tune an Instruct model, you are leveraging its existing conversational intelligence and simply injecting new facts or specific stylistic tones.</li>
+</ul>
+</details>
+
+---
+
+### Appendix C: Fine-Tuning vs. Retrieval-Augmented Generation (RAG)
+
+Now that you have completed a fine-tuning workflow, it is important to understand how it compares to the other dominant technique for giving an LLM domain-specific knowledge: **Retrieval-Augmented Generation (RAG)**.
+
+Both solve the same surface-level problem — *"how do I make a general-purpose model answer questions about MediCore Hospital?"* — but they solve it in fundamentally different ways.
+
+### How Fine-Tuning Works
+
+Fine-tuning **bakes knowledge directly into the model's weights** during a training step. After training, the model can answer from memory — no external system is needed at runtime.
+
+```
+Training time:
+  MediCore dataset → LoRA training → updated model weights
+
+At runtime:
+  User: "Where is MediCore Hospital?"
+  Model: "MediCore Hospital is located in Helsinki, Finland."
+         (retrieved from memory — no search)
+```
+
+The model **memorized** these facts the same way a student memorizes a textbook before an exam.
+
+### How RAG Works
+
+RAG **stores knowledge in an external database** and retrieves it at runtime. The model itself does not change — it reads the retrieved documents and uses them to compose an answer.
+
+```
+Setup time:
+  MediCore docs → embedding model → vector database
+
+At runtime:
+  User: "Where is MediCore Hospital?"
+  System: searches vector database → retrieves "MediCore Hospital is in Helsinki"
+  LLM:   reads retrieved text → generates answer
+```
+
+The model **never memorized anything** — it reads the answer every time from the database.
+
+### Side-by-Side Comparison
+
+| Feature | Fine-Tuning (this lab) | RAG |
+|---|---|---|
+| Where knowledge lives | Inside model weights | External vector database |
+| Updates needed when facts change | Re-train the model | Just update the database |
+| External search at runtime | No | Yes |
+| Works without internet at runtime | Yes | Requires database connection |
+| Best for | Behavior, tone, format | Live documents, policies, facts |
+| Risk of hallucination | Low (memorized facts) | Low (grounded in retrieved text) |
+| Good for MediCore Q&A demo | Yes | Yes |
+
+### When to Use Fine-Tuning
+
+Fine-tuning is the right choice when you want to change **how** the model behaves — its tone, format, style, or reasoning pattern:
+
+- "Always respond as a formal hospital assistant."
+- "Structure every answer as a numbered list."
+- "Never discuss anything outside of MediCore services."
+- Teaching a model entirely new terminology that did not exist in its training data.
+
+In this lab, you used fine-tuning to inject **static factual knowledge** about MediCore Hospital. This works well for a demo, but in production systems, a fact-based knowledge base is better served by RAG (so facts can be updated without retraining).
+
+### When to Use RAG
+
+RAG is the right choice when the knowledge is **dynamic, large, or frequently updated**:
+
+- Hospital policies that change every quarter.
+- Patient-specific records that must never be baked into model weights.
+- Large document libraries (hundreds of PDFs, internal wikis).
+- Any scenario where facts must be verifiably sourced.
+
+For MediCore Hospital in a real production deployment, RAG would be used for the knowledge base (department info, policies, procedures) while fine-tuning could still be applied to control the model's tone and response format.
+
+### The Best Real-World Setup: Combining Both
+
+Leading AI systems in healthcare and enterprise use **both techniques together**:
+
+```
+Fine-tuning  →  teaches the model HOW to respond
+                (formal tone, structured format, safe refusals)
+
+RAG          →  provides WHAT to respond with
+                (live policies, department info, current data)
+```
+
+**Example for MediCore Hospital:**
+- Fine-tune: "You are MediCore Hospital's AI assistant. Always respond formally. If you do not know, say so."
+- RAG: Connect the model to the hospital's document database so it can retrieve current appointment procedures, staff lists, and policies at runtime.
+
+This combination gives you a model that **sounds right** (fine-tuning) and **knows the latest information** (RAG) — without the risks of either approach alone.
+
+---
+
+## Recap
+
+In this lab, you:
+
+1. loaded a pretrained instruction-tuned Qwen model,
+2. formatted a dataset into the model's expected chat structure,
+3. attached LoRA adapters instead of retraining the full model,
+4. fine-tuned only the adapter weights on domain-specific examples,
+5. tested the fine-tuned model with the same chat template used in preprocessing,
+6. explored structured JSON output strategies,
+7. connected the workflow to Gradio,
+8. reviewed optional deployment and reference concepts in the appendices.
+
+For your own project, the main things that will change are usually the dataset file, the preprocessing function, the evaluation prompts, and possibly the JSON schema. The overall workflow stays the same.
+
+---
+
+## Links
+
+- [AI Engineering (Chapter 7. Finetuning), by Chip Huyen](https://metropolia.finna.fi/Record/nelli15.36974248300041)
+- 

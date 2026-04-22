@@ -1,427 +1,747 @@
-# Part 1: Deep Learning Fundamentals & Image Classification with ANNs
+# Part 1: Fine-Tuning Concepts and Workflow
 
-> [!NOTE]  
-> Building upon concepts potentially explored last week with regression tasks, this week our focus shifts specifically to classification problems using Artificial Neural Networks. We will apply fundamental deep learning principles – many of which are common to both regression and classification, to the task of image recognition using the MNIST dataset. This practical application will highlight the capabilities and limitations of basic ANNs for image data, thereby motivating the need for Convolutional Neural Networks (CNNs), which will be covered in Part 2. While some core concepts like layers, activation functions, and the Keras workflow might seem familiar, their application here is geared towards classification and understanding the challenges specific to image data.
+This part brings the theory, core concepts, and important code snippets into one place before or alongside the hands-on activity. It is designed to support Activity 1 and the mini project.
 
-<!-- This document introduces fundamental Deep Learning (DL) concepts. Deep Learning uses Artificial Neural Networks (ANNs) – computational models inspired by the structure of the brain – with multiple layers to learn patterns directly from data. This approach has proven effective for tasks like image recognition and natural language processing, partly because DL models can automatically learn **hierarchical data representations**. This means they learn simple features first, then combine them to understand more complex patterns, much like how humans recognize objects. -->
+The mini project goal is not only to fine-tune a model. Groups are expected to:
 
-This part covers:
+- fine-tune a model on their own dataset,
+- make it answer in a structured format,
+- and render or expose that output through Gradio.
 
-1.  Definition of Deep Learning and introduction to libraries (TensorFlow/Keras).
-2.  Core concepts: neurons, layers, activation functions, parameters vs. hyperparameters.
-3.  Distinctions between network types (MLP vs. DNN).
-4.  The Keras Sequential API for model building.
-5.  Loss functions for classification tasks.
-6.  Concepts of overfitting, underfitting, and regularization (Early Stopping).
-7.  Application of these concepts to build, train, and evaluate an Artificial Neural Network (ANN) for classifying handwritten digits from the MNIST dataset.
+Because of that, fine-tuning, JSON output, and Gradio should be understood as one connected workflow.
+
+> [!NOTE]
+> In this module, the goal is to understand and apply a fine-tuning workflow end to end. In some real projects, Retrieval-Augmented Generation (RAG) may be the more suitable solution. RAG can be studied independently, but here the focus is fine-tuning so that you can understand how model adaptation works at the training level.
 
 ---
 
-## I. Introduction to Deep Learning & Frameworks
+## 1. Workflow at a glance
 
-**1.1 What is Deep Learning (DL)?**
+In this module, you are not training a language model from scratch. You are taking a pretrained instruction-following model, keeping most of its parameters frozen, and training a small set of LoRA adapter weights on a custom dataset.
 
-Deep Learning is a subfield of machine learning based on artificial neural networks with multiple layers (hence "deep"). Unlike traditional machine learning algorithms that often require manual **feature engineering** (where domain experts analyze the data and explicitly define the most relevant input characteristics or "features" for the model), deep learning models aim to automatically learn relevant features and hierarchical representations directly from the raw data.
+The full workflow is:
 
-Starting from raw input, each successive layer learns increasingly complex features. For example, in image recognition, initial layers might detect simple edges, subsequent layers might combine edges to recognize shapes, and deeper layers might identify objects based on these shapes. This ability to learn features automatically makes DL particularly powerful for complex tasks involving **unstructured data** (data without a predefined format, like images, free text, and audio) where manual feature engineering is difficult or impractical.
+1. prepare the Colab GPU environment,
+2. install the required libraries,
+3. load the starting model and tokenizer,
+4. test the starting model once before training,
+5. load a dataset and convert it into the model's chat format,
+6. attach LoRA adapters,
+7. train the adapters,
+8. test the fine-tuned model,
+9. produce structured JSON output,
+10. connect the model to a Gradio interface.
 
-**1.2 Key Deep Learning Libraries**
-
-Several software libraries facilitate the development of deep learning models. These libraries provide pre-built components and tools to simplify the process. Two prominent ones are:
-
-*   **TensorFlow & Keras:**
-    *   **TensorFlow:** Developed by Google, TensorFlow is a powerful open-source library for numerical computation and large-scale machine learning. It provides low-level **APIs** (Application Programming Interfaces - sets of rules and tools for building software) for fine-grained control but can be complex for beginners.
-    *   **Keras:** Keras is a high-level API for building and training neural networks. It emphasizes user-friendliness, modularity, and rapid experimentation. Keras can run on top of different **backends** (underlying computational engines like TensorFlow), including TensorFlow (most common), Theano, or CNTK. We will use the `tensorflow.keras` implementation, which integrates Keras directly within TensorFlow. Its ease of use makes it suitable for beginners and practitioners.
-
-*   **PyTorch/[Fastai](https://docs.fast.ai/):**
-    *   Developed by Facebook's AI Research lab (FAIR), PyTorch is another major open-source library. It is widely adopted, especially in the research community, and is known for its Pythonic feel, flexibility, and **dynamic computation graphs** (meaning the network's structure can potentially be altered during execution, offering flexibility for complex scenarios, although less common in introductory models).
-
-**Focus:** This summary will utilize **Keras (specifically `tensorflow.keras`)** for all practical examples due to its clear syntax and streamlined workflow for common tasks.
-
----
-
-## II. Core Concepts: Building Blocks of Neural Networks
-
-Before building models, understanding the fundamental components is essential.
-
-**2.1 Neurons and Layers**
-
-*   **Neuron (or Unit):** The basic computational unit in a neural network. It receives one or more inputs (values from the previous layer or the initial data). Inside the neuron, it performs a **weighted sum** (each input is multiplied by a corresponding 'weight' or importance factor, and these products are summed together), adds a **bias term** (an additional constant value that helps the model fit the data better), and then passes this combined result through an **activation function** (explained below) to produce the neuron's output.
-*   **Layer:** Neurons are organized into layers. A typical network processes data sequentially through these layers. Common types include:
-    *   **Input Layer:** Not technically a computational layer, but represents the structure receiving the raw input data (features). The number of "slots" or connections corresponds to the number of input features.
-    *   **Hidden Layers:** Layers between the input and output layers. These layers perform the intermediate computations. The term "hidden" implies their outputs are not directly observed as the final result but are used as inputs for subsequent layers. They perform the crucial task of **feature extraction** – transforming the input data into more abstract and useful representations. A network can have zero, one, or multiple hidden layers.
-    *   **Output Layer:** The final layer, which produces the network's prediction. The number of neurons and the activation function depend on the type of task (e.g., one neuron for predicting a single continuous value in regression, or multiple neurons for predicting probabilities of different categories in classification).
-
-**2.2 MLP vs. DNN**
-
-These terms describe types of neural networks:
-
-*   **MLP (Multilayer Perceptron):** Refers to a specific class of **feedforward** neural networks (meaning data flows in one direction, from input to output, without loops). Key characteristics include:
-    *   An input layer, one or more hidden layers, and an output layer.
-    *   All layers are **fully connected** (or **Dense**), meaning each neuron in one layer is connected to *every* neuron in the next layer. This implies that every output from one layer contributes to every computation in the next layer.
-    *   Typically use non-linear activation functions in the hidden layers.
-
-*   **DNN (Deep Neural Network):** A broader term referring to any neural network architecture with **multiple hidden layers** (conventionally, two or more). The "deep" aspect refers to this depth of layers.
-
-**Relationship Summary:**
-
-| Term         | Meaning                                                                      | Connection Type          | Depth Requirement   |
-| :----------- | :--------------------------------------------------------------------------- | :----------------------- | :------------------ |
-| **MLP**      | Specific architecture: fully connected layers.                               | Fully Connected (Dense)  | ≥ 1 hidden layer    |
-| **DNN**      | General term: any network with multiple hidden layers.                       | Can be Dense, Conv, RNN etc. | ≥ 2 hidden layers |
-| **Deep MLP** | An MLP with 2 or more hidden layers. It *is* a type of DNN.                  | Fully Connected (Dense)  | ≥ 2 hidden layers |
-| **CNN / RNN**| Networks using Convolutional or Recurrent layers. Also DNNs if deep (≥2 layers). | Convolutional/Recurrent | Often ≥ 2 layers    |
-
-**Key Takeaway:** All MLPs with two or more hidden layers are DNNs. However, DNNs can also use other layer types (like Convolutional layers for images or Recurrent layers for sequences) instead of only fully connected layers.
-
-**2.3 What Makes a Network "Deep"?**
-
-The term "deep" generally implies the presence of **two or more hidden layers**. The depth allows the network to learn a **hierarchy of features**, meaning simpler features learned in early layers (like edges in an image) are combined by later layers to form more complex features (like shapes or object parts). This hierarchical feature learning is a key reason for the success of deep learning on complex problems.
-
-**2.4 How Many Neurons per Layer?**
-
-Determining the optimal number of neurons (units) in each hidden layer requires experimentation, as there's no single formula. Considerations include:
-
-*   **Task Complexity:** More complex relationships in the data might require more neurons or layers to model adequately.
-*   **Dataset Size:** Larger datasets can often support larger networks (more neurons/layers) without severe overfitting.
-*   **Input Features:** The number of input features provides context but doesn't dictate hidden layer size.
-*   **Computational Resources:** More neurons result in more parameters to train, increasing memory usage and training time.
-*   **Overfitting Risk:** Excessively large layers might lead the model to memorize the training data (overfitting) rather than learning general patterns.
-
-**General Heuristics (Starting Points):**
-
-*   **Powers of 2:** Values like 32, 64, 128, 256 are common, sometimes offering computational efficiency.
-*   **Funnel Structure:** Often, the number of neurons decreases in successive hidden layers (e.g., Input -> 128 -> 64 -> Output), gradually compressing the information.
-*   **Problem Type:** Simple problems might use layers with tens to hundreds of neurons. Complex problems might use layers with hundreds or thousands, especially in the fully connected parts of larger models.
-
-**Recommendation:** Begin with a simpler architecture (e.g., 1-2 hidden layers, 32-128 neurons per layer) and incrementally add complexity if needed, carefully observing the impact on performance and overfitting.
-
-**2.5 Activation Functions**
-
-Activation functions introduce **non-linearity** into the network. This is crucial because real-world data patterns are rarely simple linear relationships. Without non-linear activation functions, a deep network of linear layers would behave just like a single linear layer, limiting its learning capacity. The activation function determines the output of a neuron based on the weighted sum of its inputs plus the bias.
-
-**Common Choices and Use Cases:**
-
-*   **ReLU (Rectified Linear Unit):**
-    *   *Function:* `f(x) = max(0, x)` (Outputs the input if positive, zero otherwise).
-    *   *Use Case:* The most common choice for **hidden layers**. It is computationally efficient and helps mitigate the **vanishing gradient problem** (a situation in deep networks where the signals used to update the weights in early layers become extremely small, effectively stopping learning).
-    *   *Output Range:* \[0, ∞)
-    * <img src="./img/relu.png" width="50%">
-*   **Linear (or 'None'):**
-    *   *Function:* `f(x) = x` (Outputs the input directly).
-    *   *Use Case:* Typically used in the **output layer for regression tasks**, where the prediction can be any continuous value.
-    *   *Output Range:* (-∞, ∞)
-*   **Sigmoid:**
-    *   *Function:* `f(x) = 1 / (1 + exp(-x))` (S-shaped curve).
-    *   *Use Case:* Primarily used in the **output layer for binary classification tasks**. Outputs a probability between 0 and 1. Less common in hidden layers now due to potential for vanishing gradients.
-    *   *Output Range:* (0, 1)
-    * <img src="./img/sigmoid.png" width="50%">
-*   **Softmax:**
-    *   *Function:* Converts a vector of raw scores (logits) into a probability distribution (all output values are between 0 and 1 and sum to 1).
-    *   *Use Case:* Used in the **output layer for multi-class classification tasks**. Each neuron's output represents the calculated probability for a specific class.
-    *   *Output Range:* Vector where each element is \[0, 1] and the vector sum is 1.
-*   **Tanh (Hyperbolic Tangent):**
-    *   *Function:* `f(x) = tanh(x)` (Similar S-shape to sigmoid, but output centered around zero).
-    *   *Use Case:* Sometimes used in hidden layers, especially in recurrent networks.
-    *   *Output Range:* (-1, 1)
-    * <img src="./img/tanh.png" width="50%">
-
-
-
-
-
-
-
-**2.6 Parameters vs. Hyperparameters**
-
-Understanding this distinction is fundamental to working with neural networks:
-
-*   **Parameters:** These are the variables *internal* to the model whose values are **learned from the data** during the training process. The learning process aims to find the optimal values for these parameters that minimize the error on the training data.
-    *   *Examples:* **Weights** (numerical values representing the strength of connections between neurons) and **biases** (numerical values added at each neuron to shift the activation function). The number of parameters indicates the model's size.
-*   **Hyperparameters:** These are configuration choices set by the user/developer **before** training begins. They define the model's structure and how the training algorithm works. They are *not* learned from the data. Finding good hyperparameters often requires trial-and-error or systematic tuning processes (like grid search or random search).
-    *   *Examples:*
-        *   Number of hidden layers
-        *   Number of neurons per layer
-        *   Choice of activation functions (`relu`, `softmax`, etc.)
-        *   Choice of `optimizer` (e.g., 'adam', 'sgd') - the algorithm that updates parameters. (Note: *Backward Pass: Backpropagation (Finding the Blame) + Gradient Descent (Updating the Weights*))
-        *   `learning rate` - a crucial hyperparameter within the optimizer that controls the step size taken during parameter updates.
-        *   Choice of `loss` function - the function measuring prediction error.
-        *   `batch_size` - the number of training samples processed in one iteration before updating parameters.
-        *   `epochs` - the number of times the entire training dataset is processed.
-        *   **Regularization techniques** and their settings (methods to prevent overfitting, like dropout rate or parameters for early stopping).
+> [!IMPORTANT]
+> Understand this workflow before focusing on low-level details inside individual cells. Most implementation mistakes become easier to diagnose when the overall pipeline is clear.
 
 ---
 
-## III. Practical Deep Learning with Keras: MNIST Classification
+## 2. What fine-tuning means in this lab
 
-This section applies the concepts to classify MNIST handwritten digits using Keras.
+Fine-tuning changes a model so that it becomes better at a specific task, domain, style, or format.
 
-**3.1 The MNIST Dataset**
+In this lab, the starting model is already an instruction-tuned chat model:
 
-MNIST is a standard dataset containing 70,000 grayscale images (28x28 pixels) of digits 0-9. It includes 60,000 images for training and 10,000 for testing. The task is to train a model to correctly identify the digit depicted in an image.
+- starting model: `Qwen/Qwen2.5-1.5B-Instruct`
+- fine-tuning method: LoRA
+- training data style: question-answer examples
+- expected project output: structured JSON rendered through Gradio
 
-```python
-# Code for Loading and viewing MNIST data
-import tensorflow as tf
-from tensorflow.keras import datasets
-import matplotlib.pyplot as plt
-import numpy as np
+This means you are not teaching the model language from the beginning. You are adapting an already capable model to follow a narrower pattern using new examples.
 
-# Load the dataset; it's conveniently included in Keras
-(X_train, y_train), (X_test, y_test) = datasets.mnist.load_data()
+> [!IMPORTANT]
+> The model learns not only from the facts in the dataset, but also from the formatting pattern of that dataset.
 
-# Print shapes to understand the data dimensions
-print("Training data shape:", X_train.shape) # (Num_samples, Height, Width)
-print("Training labels shape:", y_train.shape) # (Num_samples,)
+### Instruction-tuned models versus foundation models
 
-# Display first few images to visualize the data
-plt.figure(figsize=(10, 3))
-for i in range(5):
-    plt.subplot(1, 5, i + 1); plt.imshow(X_train[i], cmap='gray'); plt.title(f"Label: {y_train[i]}"); plt.axis('off')
-plt.suptitle("Sample MNIST Images"); plt.show()
+`Qwen/Qwen2.5-1.5B-Instruct` is not a raw foundation model. It is an instruction-tuned model.
 
-# Set random seeds for numpy and tensorflow to ensure results are reproducible if code is run again
-np.random.seed(42); tf.random.set_seed(42)
-```
+- A foundation model is trained to predict text broadly from large-scale corpora.
+- An instruction-tuned model has already been further trained to respond to prompts, follow roles, and behave more like an assistant.
 
-**3.2 Data Preparation**
+That distinction matters here because the lab assumes conversational behavior already exists. You are adapting that behavior to a narrower domain using `MediCore.json` and later your own dataset.
 
-Preparing data correctly is crucial for model performance.
+> [!NOTE]
+> Calling `Qwen/Qwen2.5-1.5B-Instruct` the "base model" can be misleading. In this lab, it is better understood as the starting model that LoRA adapters are attached to. It is the underlying model used for fine-tuning, but it is already instruction-tuned rather than a raw foundation checkpoint.
 
-*   **Normalization:** Pixel values (0-255) are scaled to the range [0, 1]. This helps the training process converge more stably and quickly, as neural networks often work best with small input values. Dividing by 255.0 achieves this.
-*   **Flattening:** Standard ANNs (using `Dense` layers) expect input as a 1D vector. Although the images are 2D (28x28), we need to reshape them into a 1D array of 784 pixels (28 * 28 = 784). This reshaping will be performed by the first layer in our Keras model (`Flatten` layer).
-<img src="./img/flattening.gif" width="50%">
-*   **Labels:** The labels (`y_train`, `y_test`) are already integers (0-9), which is the format required by the chosen loss function (`sparse_categorical_crossentropy`).
+---
 
-```python
-# Normalize pixel values by dividing by the maximum value (255.0)
-X_train_normalized = X_train / 255.0
-X_test_normalized = X_test / 255.0
-# Verify the new range
-print(f"Pixel values normalized. Range: [{X_train_normalized.min()}, {X_train_normalized.max()}]")
-```
+## 3. Why prompt format matters
 
-**3.3 Defining the Model Architecture (Sequential API)**
+Chat models are trained to expect specific control-token structures. Qwen uses ChatML-style formatting, not generic tags.
 
-The Keras `Sequential` API provides a simple way to build models by creating a **linear stack of layers**. You add layers one by one in the order the data should flow through them.
+If you invent the wrong structure, the model may:
 
-```python
-from tensorflow.keras import layers, models
+- treat the special tags as plain text,
+- lose the distinction between user and assistant turns,
+- generate unstable or hallucinated output.
 
-# Define the ANN structure using the Sequential model
-model = models.Sequential([
-    # Input Layer / Flattening: Converts each 28x28 image into a 1D vector of 784 elements.
-    # 'input_shape=(28, 28)' tells the layer the dimensions of each input sample.
-    layers.Flatten(input_shape=(28, 28), name="Input_Flatten"),
+That is why the activity uses `tokenizer.apply_chat_template()`.
 
-    # Hidden Layer: A fully connected ('Dense') layer with 128 neurons.
-    # 'activation='relu'' applies the ReLU activation function to the output of this layer.
-    layers.Dense(128, activation='relu', name="Hidden_Layer_1"),
+<details>
+<summary><b>Alternative chat formats</b></summary>
+<br>
+Different model families use different prompt conventions. For example:
 
-    # Output Layer: A Dense layer with 10 neurons (one for each digit class 0-9).
-    # 'activation='softmax'' converts the outputs into probabilities for each class.
-    layers.Dense(10, activation='softmax', name="Output_Layer")
-], name="MNIST_ANN") # Naming the model is optional but helpful
+- Llama-style models often use <code>[INST]</code> and <code>[/INST]</code>.
+- Some models use explicit role tokens such as system, user, and assistant in their own proprietary format.
+- Qwen uses ChatML-style tags such as <code>&lt;|im_start|&gt;</code> and <code>&lt;|im_end|&gt;</code>.
 
-print("\nModel Architecture Summary:")
-# model.summary() provides a table showing layers, their output shapes, and the number of trainable parameters (weights + biases).
-model.summary()
-```
+The practical lesson is not to memorize all formats. The practical lesson is to use the tokenizer's built-in chat template whenever available so the model receives the structure it was actually trained on.
+</details>
 
-**3.4 Compiling the Model (Loss Function, Optimizer, Metrics)**
-
-Before the model can be trained, it needs to be compiled. This step configures the learning process.
-
-*   **Optimizer:** `'adam'` is chosen. The optimizer is the algorithm that iteratively updates the model's parameters (weights and biases) to minimize the loss function. Adam is an adaptive learning rate optimization algorithm that's efficient and often works well with default settings.
-*   **Loss Function:** `'sparse_categorical_crossentropy'` is selected. The **loss function** quantifies the difference between the model's predictions and the actual labels. Minimizing this value is the goal of training. This specific loss function is suitable for multi-class classification tasks where the true labels are provided as integers (0, 1, 2, ...).
-*   **Metrics:** `['accuracy']` is specified. **Metrics** are used to monitor and evaluate the model's performance but are not directly used by the optimizer to update weights. Accuracy measures the proportion of images that are correctly classified.
+### Key snippet
 
 ```python
-# Compile the model with optimizer, loss function, and metrics
-model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
-              metrics=['accuracy'])
-print("\nModel compiled.")
-```
-
-**3.5 Training the Model**
-
-Training is performed using the `model.fit()` method. This involves feeding the training data (`X_train_normalized`, `y_train`) to the compiled model and allowing the optimizer to adjust the model parameters over several iterations.
-
-*   **Epochs:** An epoch represents one complete pass through the entire training dataset. Training typically involves multiple epochs. `epochs = 10` means the model will see the entire training set 10 times.
-*   **Batch Size:** The training data is usually processed in small groups called batches (e.g., `batch_size = 32`). The model's parameters are updated after processing each batch. Smaller batches can lead to noisier updates but may help escape local minima; larger batches provide smoother updates but require more memory.
-*   **Validation Data:** `validation_split=0.2` reserves 20% of the training data to be used exclusively for validation. After each epoch, the model's performance (loss and metrics) is evaluated on this validation set. This provides an estimate of how well the model generalizes to data it hasn't been directly trained on within that epoch's parameter updates.
-*   **`history` object:** The `fit` method returns a `History` object which stores the loss and metric values for both training and validation sets for each epoch. This is useful for plotting learning curves.
-
-```python
-# Define training hyperparameters
-epochs = 10 # Number of times to iterate over the entire training dataset
-batch_size = 32 # Number of samples per gradient update
-
-print(f"\nStarting model training for {epochs} epochs...")
-# Train the model
-history = model.fit(
-    X_train_normalized, y_train, # Training data and labels
-    epochs=epochs,
-    batch_size=batch_size,
-    validation_split=0.2, # Use 20% of training data for validation during training
-    verbose=1 # Show progress bar during training (0=silent, 1=bar, 2=line per epoch)
+text = tokenizer.apply_chat_template(
+	messages,
+	tokenize=False,
+	add_generation_prompt=True
 )
-print("\nModel training completed.")
 ```
+
+This converts a generic message list into the exact prompt structure Qwen expects.
+
+> [!IMPORTANT]
+> The structure used during training and the structure used during inference must match.
+
+If you train with:
+
+- a system prompt,
+- a JSON-style assistant answer,
+- a particular user/assistant message pattern,
+
+you should infer with the same structure.
 
 ---
 
-## IV. Evaluating and Improving Model Training
+## 4. The tokenizer and the starting model
 
-After training, evaluating performance and diagnosing potential issues is critical.
+The tokenizer converts text into token IDs. The model works only on numbers, not raw strings.
 
-**4.1 Visualizing Training History**
-
-Plotting the metrics stored in the `history` object (training vs. validation loss and accuracy) over epochs is essential for understanding how the training progressed. These plots are often called **learning curves**.
+### Key snippet
 
 ```python
-# Extract data from the History object returned by model.fit()
-history_dict = history.history
-train_loss = history_dict['loss']; val_loss = history_dict['val_loss']
-train_accuracy = history_dict['accuracy']; val_accuracy = history_dict['val_accuracy']
-# Create an array representing the epoch numbers for plotting
-epochs_range = range(1, len(train_loss) + 1)
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
-# Create subplots for loss and accuracy
-plt.figure(figsize=(14, 6))
-# Plot Loss curves
-plt.subplot(1, 2, 1) # Position for the first plot
-plt.plot(epochs_range, train_loss, 'bo-', label='Training Loss') # Blue line with dots
-plt.plot(epochs_range, val_loss, 'ro-', label='Validation Loss') # Red line with dots
-plt.title('Training and Validation Loss')
-plt.xlabel('Epoch'); plt.ylabel('Loss (Sparse Cat. Crossentropy)'); plt.legend(); plt.grid(True)
-# Plot Accuracy curves
-plt.subplot(1, 2, 2) # Position for the second plot
-plt.plot(epochs_range, train_accuracy, 'bo-', label='Training Accuracy')
-plt.plot(epochs_range, val_accuracy, 'ro-', label='Validation Accuracy')
-plt.title('Training and Validation Accuracy')
-plt.xlabel('Epoch'); plt.ylabel('Accuracy'); plt.legend(); plt.grid(True)
-# Adjust layout and display the plots
-plt.tight_layout(); plt.show()
-```
+model_name = "Qwen/Qwen2.5-1.5B-Instruct"
 
-<img src="./img/learning-curves.png" width="50%">
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
 
-
-**4.2 Understanding Overfitting vs. Underfitting**
-
-Analyzing the learning curves helps identify common training problems:
-
-*   **Underfitting:**
-    *   *Definition:* The model is too simple to learn the underlying structure of the data. It fails to achieve low error on both the training and validation sets.
-    *   *Symptoms on Plots:* Both training and validation loss remain high. Accuracy remains low for both. Curves may plateau (i.e. stall, pause, or halt) early at poor performance levels.
-    *   *Possible Causes:* Insufficient model capacity (too few layers/neurons), inadequate training time (too few epochs), features don't contain enough information.
-    *   *Remedies:* Increase model capacity, train longer, engineer better features (less relevant for DL), use a more suitable model type.
-
-*   **Overfitting:**
-    *   *Definition:* The model learns the training data *too well*, including noise and specific examples that don't generalize. It performs very well on the training set but poorly on new, unseen data (validation set).
-    *   *Symptoms on Plots:* Training loss continues to decrease while validation loss levels off or starts to *increase*. Similarly, training accuracy approaches 100% while validation accuracy plateaus (i.e. stall, pause, or halt) or drops. A noticeable gap appears between the training and validation curves.
-    *   *Possible Causes:* Model is too complex for the amount of data available, training for too many epochs, insufficient data diversity.
-    *   *Remedies:* Use regularization techniques (like Early Stopping, Dropout), get more training data, use data augmentation, simplify the model.
-
-*   **Good Fit:**
-    *   *Definition:* The model learns the underlying patterns well and generalizes successfully to unseen data.
-    *   *Symptoms on Plots:* Both training and validation loss decrease and converge to low values. Both accuracies increase and converge to high values. The gap between training and validation curves is minimal.
-
-<img src="./img/Underfitting-overfitting.png" width="50%">
-
-**4.3 Regularization Technique: Early Stopping**
-
-**Regularization** refers to techniques used to prevent overfitting and improve a model's ability to generalize to new data. Early Stopping is a common and effective regularization method.
-
-<img src="./img/Early-Stopping.png" width="50%">
-
-*   **Concept:** Monitor a chosen performance metric on the validation set during training (typically `val_loss`). If this metric stops improving (or starts worsening) for a specified number of consecutive epochs (the `patience` parameter), the training process is halted prematurely. The idea is to stop training around the point where the model starts to overfit. Optionally (`restore_best_weights=True`), the model's parameters can be reverted to the values they had at the epoch with the best observed validation metric.
-
-```python
-# Import the EarlyStopping callback from Keras
-from tensorflow.keras.callbacks import EarlyStopping
-
-# Define the Early Stopping callback instance
-# 'monitor': the metric to watch (e.g., 'val_loss' or 'val_accuracy')
-# 'patience': number of epochs with no improvement after which training will be stopped
-# 'verbose=1': prints a message when stopping occurs
-# 'restore_best_weights=True': ensures the final model weights are from the best epoch, not the last one
-early_stopping_callback = EarlyStopping(
-    monitor='val_loss', # Monitor validation loss for improvement
-    patience=3,         # Stop if val_loss doesn't improve for 3 consecutive epochs
-    verbose=1,
-    restore_best_weights=True
+model = AutoModelForCausalLM.from_pretrained(
+	model_name,
+	device_map="cuda",
+	torch_dtype=torch.float16
 )
-print("Early Stopping callback defined.")
 
-# --- Example Training with Early Stopping ---
-# It's good practice to re-instantiate the model to start with fresh weights
-# 1. Re-define the model architecture
-model_es = models.Sequential([
-    layers.Flatten(input_shape=(28, 28)),
-    layers.Dense(128, activation='relu'),
-    layers.Dense(10, activation='softmax')
-], name="MNIST_ANN_With_ES")
-
-# 2. Re-compile the model
-model_es.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-print("\nNew model instance created and compiled for Early Stopping.")
-
-# 3. Train with the EarlyStopping callback included in the 'callbacks' list
-# Set a larger number of epochs, allowing Early Stopping to potentially finish sooner
-epochs_max = 50
-print(f"\nStarting model training with Early Stopping (max {epochs_max} epochs)...")
-
-# Pass the callback to the fit method
-history_es = model_es.fit(
-    X_train_normalized, y_train,
-    epochs=epochs_max,
-    batch_size=32,
-    validation_split=0.2,
-    callbacks=[early_stopping_callback], # <-- Callback is included here
-    verbose=1
-)
-print("\nModel training with Early Stopping completed.")
-
-# (Visualization code for history_es, similar to 4.1, can be added to see the effect)
+model.config.use_cache = False
 ```
-**Benefits of Early Stopping:** Effectively **helps prevent overfitting**, often leads to models that **generalize better** to unseen data, and can **save significant training time** by avoiding unnecessary epochs.
+
+### Why these settings matter
+
+- `device_map="cuda"` sends the model to the GPU.
+- `torch_dtype=torch.float16` reduces VRAM usage.
+- `tokenizer.pad_token = tokenizer.eos_token` gives the model a usable padding token.
+- `model.config.use_cache = False` avoids training issues during backpropagation.
+
+> [!IMPORTANT]
+> Forgetting `device_map="cuda"` is one of the most common causes of extremely slow execution.
 
 ---
 
-## V. Evaluating the Final Model
+## 5. Why baseline inference matters
 
-After training (potentially using early stopping), the model's final performance should be evaluated on the **test set** (`X_test_normalized`, `y_test`). This dataset was completely held out during training and validation and provides an unbiased estimate of how the model is expected to perform on new, real-world data.
+Before training, ask the model one test question.
+
+This gives them a before-and-after comparison.
+
+### Key snippet
 
 ```python
-print("\n--- Evaluating Final Model on Test Set ---")
-# Use the model trained with early stopping (model_es), as it likely performs better
-# The .evaluate() method computes the loss and metrics on the provided data
-final_loss, final_accuracy = model_es.evaluate(X_test_normalized, y_test, verbose=0) # verbose=0 hides progress bar
-print(f"Final Test Accuracy (on unseen data): {final_accuracy:.4f}")
-print(f"Final Test Loss (on unseen data): {final_loss:.4f}")
+messages = [
+	{"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"}
+]
 ```
 
-## VI. Limitations of ANNs for Images & Motivation for CNNs
+This is not only a demo step. It helps answer a practical question later:
 
-While the ANN achieves high accuracy on MNIST, simple fully connected networks (like MLPs) have inherent limitations when applied to image data:
+`Did the model actually learn anything from my dataset?`
 
-1.  **Loss of Spatial Information:** The `Flatten` layer converts the 2D image grid into a 1D vector. This discards the spatial relationships between pixels (e.g., which pixels are adjacent, forming lines or shapes). The network loses valuable structural information.
-2.  **Parameter Inefficiency:** In a `Dense` layer, every neuron connects to *every* input from the previous layer. For a 28x28 image (784 inputs), the first hidden layer (128 neurons) already has `784 * 128 + 128 = 100,480` parameters (weights + biases). For larger, real-world images, this number explodes, leading to huge models that are slow to train and prone to overfitting.
-3.  **Lack of Translation Invariance:** The network learns features based on their absolute position in the image. If it learns to recognize a '7' centered in the training images, it might struggle if presented with a '7' shifted to the corner in a test image, as the input pattern activating the neurons would be different.
-
-These limitations – inability to efficiently process spatial hierarchies, parameter explosion, and sensitivity to location – motivate the need for specialized architectures like **Convolutional Neural Networks (CNNs)**, which are explicitly designed to handle grid-like data like images and address these issues. This will be the focus of Part 2.
-
-## Conclusion
-
-This reading covered core Deep Learning concepts including libraries (TensorFlow/Keras), network components (neurons, layers), activation functions (ReLU, Softmax), the difference between parameters and hyperparameters, loss functions suitable for classification (`sparse_categorical_crossentropy`), optimizers (`adam`), the challenges of overfitting/underfitting, and regularization via Early Stopping. A basic Artificial Neural Network (ANN) was built, trained, and evaluated for MNIST digit classification using the Keras Sequential API. The observed limitations of this ANN approach on image data establish the need for architectures like CNNs, which are better suited for leveraging spatial information.
+> [!TIP]
+> For the mini project, replace the MediCore prompt with a question from your own domain so that the before-and-after comparison is meaningful.
 
 ---
-## Useful Links
 
-- [Book: Deep Learning from Scratch, By Seth Weidman](https://metropolia.finna.fi/Record/nelli15.4100000009347178)
-- [Intro to Deep Learning](https://www.kaggle.com/learn/intro-to-deep-learning)
-- [Activation Functions](https://developers.google.com/machine-learning/crash-course/neural-networks/activation-functions)
+## 6. Dataset structure and preprocessing
 
+This is the most important concept in the lab.
+
+Most projects will not fail because LoRA itself is conceptually wrong. They will fail because the dataset is mapped incorrectly.
+
+### Example records from the MediCore dataset
+
+```json
+{"prompt": "What is MediCore Hospital?", "completion": "MediCore Hospital is a private advanced medical center in Helsinki specializing in AI-assisted healthcare and robotic surgery."}
+```
+
+```json
+{"prompt": "Who leads the neurology department at MediCore Hospital?", "completion": "Dr. Elena Varga leads the neurology department at MediCore Hospital."}
+```
+
+These are single-turn instruction-response examples.
+
+### Preprocessing snippet
+
+```python
+from datasets import load_dataset
+
+raw_data = load_dataset("json", data_files="MediCore.json")
+
+def preprocess(sample):
+	messages = [
+		{"role": "user", "content": sample['prompt']},
+		{"role": "assistant", "content": sample['completion']}
+	]
+
+	text = tokenizer.apply_chat_template(
+		messages,
+		tokenize=False,
+		add_generation_prompt=False
+	)
+
+	tokenized = tokenizer(
+		text,
+		truncation=True,
+		padding=False
+	)
+
+	return tokenized
+
+data = raw_data.map(
+	preprocess,
+	remove_columns=raw_data["train"].column_names
+)
+```
+
+### Why this step is important
+
+This step defines:
+
+- who is speaking,
+- what the user asked,
+- what the assistant should answer,
+- what the model is actually trained to predict.
+
+> [!IMPORTANT]
+> If your dataset uses different field names, the mapping in `preprocess(sample)` must change.
+
+### Example with different field names
+
+```json
+{"question": "What is the refund policy?", "answer": "Refunds are available within 14 days."}
+```
+
+```python
+def preprocess(sample):
+	messages = [
+		{"role": "user", "content": sample['question']},
+		{"role": "assistant", "content": sample['answer']}
+	]
+	...
+```
+
+> [!IMPORTANT]
+> In most projects, the main code change is not the model-loading code. It is the dataset mapping code.
+
+---
+
+## 7. Dynamic padding and why `padding=False` is used early
+
+You may notice that padding is disabled in preprocessing even though training requires equal-length batches.
+
+That is intentional.
+
+- if every example were padded immediately, memory use would become wasteful,
+- instead, padding is delayed until batching time,
+- the collator later pads only to the longest item in the current batch.
+
+This is more memory-efficient, especially in Colab.
+
+---
+
+## 8. What PEFT and LoRA do
+
+### PEFT
+
+PEFT means Parameter-Efficient Fine-Tuning.
+
+Instead of updating every parameter in a large model, PEFT methods train only a small subset of parameters.
+
+### LoRA
+
+LoRA is a PEFT method that keeps the original model weights frozen and adds small trainable matrices into selected layers.
+
+That is why LoRA is practical in classroom settings and in limited GPU environments.
+
+### What LoRA adapters actually are
+
+LoRA adapters are not separate replacement models. They are additional trainable weight components inserted into selected linear layers of the starting model.
+
+Conceptually, LoRA works like this:
+
+- the original model weights stay frozen,
+- small low-rank matrices are added to chosen layers,
+- training updates only those smaller matrices,
+- at inference time, the model behaves like the original model plus the learned adapter behavior.
+
+This matters for three reasons:
+
+1. training becomes much cheaper than full fine-tuning,
+2. the saved artifact is much smaller than the full model,
+3. multiple adapters can be trained for different domains while reusing the same starting model.
+
+In this lab, the adapter learns patterns from `MediCore.json`, such as the style of short factual answers and the domain-specific hospital information.
+
+> [!NOTE]
+> LoRA does not mean the model is learning only new facts. It is also learning how those facts are presented. If `MediCore.json` contains short direct answers, the adapter will tend to reproduce that answer style.
+
+### Key snippet
+
+```python
+from peft import LoraConfig, get_peft_model, TaskType
+
+lora_config = LoraConfig(
+	task_type=TaskType.CAUSAL_LM,
+	r=16,
+	lora_alpha=32,
+	target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+	bias="none"
+)
+
+model = get_peft_model(model, lora_config)
+```
+
+### Why this matters
+
+- `r` controls adapter capacity,
+- `lora_alpha` scales adapter influence,
+- `target_modules` defines where adapters are inserted,
+- `bias="none"` avoids training bias parameters.
+
+The low-rank idea in LoRA comes from approximating weight updates with smaller matrices rather than full-size dense updates. In practical terms, you can think of `r` as controlling how much expressive capacity the adapter has.
+
+- lower `r` means smaller adapters and lower memory use,
+- higher `r` means more capacity but greater memory cost and a higher risk of overfitting on a small dataset.
+
+> [!IMPORTANT]
+> The exact `target_modules` are model-architecture specific. Do not assume these names work for every model family.
+
+> [!TIP]
+> If you switch to another model architecture, this is one of the first places to verify.
+
+---
+
+## 9. Training setup and memory-saving choices
+
+The training cell combines multiple ideas at once:
+
+- batching,
+- validation split,
+- learning rate,
+- gradient accumulation,
+- mixed precision,
+- gradient checkpointing.
+
+### Key snippet
+
+```python
+from transformers import DataCollatorForLanguageModeling, TrainingArguments, Trainer
+
+data_collator = DataCollatorForLanguageModeling(
+	tokenizer=tokenizer,
+	mlm=False
+)
+
+split = data["train"].train_test_split(test_size=0.1)
+train_dataset = split["train"]
+eval_dataset = split["test"]
+
+training_args = TrainingArguments(
+	output_dir="./results",
+	num_train_epochs=5,
+	learning_rate=2e-4,
+	per_device_train_batch_size=1,
+	gradient_accumulation_steps=2,
+	fp16=True,
+	logging_steps=5,
+	eval_strategy="epoch",
+	lr_scheduler_type="cosine",
+	remove_unused_columns=False
+)
+
+model.gradient_checkpointing_enable()
+```
+
+### Why these settings matter
+
+- `mlm=False` is required because this is next-token generation, not masked-language modeling.
+- `per_device_train_batch_size=1` reduces memory usage.
+- `gradient_accumulation_steps=2` preserves a larger effective batch size.
+- `fp16=True` reduces VRAM use.
+- `gradient_checkpointing_enable()` saves memory at the cost of some speed.
+
+> [!IMPORTANT]
+> `per_device_train_batch_size` and `gradient_accumulation_steps` work together.
+
+If batch size must be reduced because of memory errors, gradient accumulation is often kept or increased to preserve training stability.
+
+---
+
+## 10. Overfitting in small datasets
+
+This lab uses a relatively small dataset. That makes overfitting likely.
+
+Typical signs:
+
+- training loss keeps decreasing,
+- validation loss increases early,
+- generated answers become too rigid or memorized.
+
+**IMPORTANT:** A lower training loss does not automatically mean a better model.
+
+### Practical actions if overfitting appears
+
+- reduce `num_train_epochs`,
+- test the model with several unseen prompts,
+- inspect output quality, not just the plotted or printed loss,
+- keep the validation split instead of training on everything immediately.
+
+---
+
+## 11. Saving and reloading the adapter
+
+After training, the lab saves the adapter and tokenizer.
+
+### Key idea
+
+When LoRA is used, `trainer.save_model(...)` does not save the whole starting-model checkpoint. It saves the adapter weights.
+
+That is why reloading later requires:
+
+1. loading the original starting-model checkpoint,
+2. loading the adapter on top of it.
+
+### Key snippet
+
+```python
+from peft import PeftModel, PeftConfig
+
+path = "./my_qwen"
+config = PeftConfig.from_pretrained(path)
+
+base_model = AutoModelForCausalLM.from_pretrained(
+	config.base_model_name_or_path,
+	device_map="cuda",
+	torch_dtype=torch.float16
+)
+
+model = PeftModel.from_pretrained(base_model, path)
+model.config.use_cache = True
+```
+
+**IMPORTANT:** Re-enabling cache is useful at inference time, even though it had to be disabled during training.
+
+---
+
+## 12. Inference after fine-tuning
+
+Inference should use the same message structure that the model saw during training.
+
+### Key snippet
+
+```python
+messages = [
+	{"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"}
+]
+
+text = tokenizer.apply_chat_template(
+	messages,
+	tokenize=False,
+	add_generation_prompt=True
+)
+```
+
+### Why `add_generation_prompt=True` matters
+
+During inference, the model needs a prompt that signals:
+
+`The user has finished. Now the assistant should respond.`
+
+That is why inference uses `add_generation_prompt=True`, while training used `False`.
+
+> [!IMPORTANT]
+> If training used a system prompt or JSON-specific assistant behavior, inference should include that same structure again.
+
+---
+
+## 13. Structured output is part of the project workflow
+
+For this course, structured output is not a side topic. It is part of the core workflow because the mini project requires you to connect the model to Gradio.
+
+Two ideas should be separated clearly:
+
+- how the model generates an answer,
+- how that answer is packaged for downstream use.
+
+### Recommended project approach
+
+For the project, the most reliable beginner-friendly approach is:
+
+1. generate plain text from the model,
+2. wrap that output in JSON using Python.
+
+This is more reliable than depending only on the model to always produce valid JSON.
+
+### Key snippet
+
+```python
+import json
+
+def generate_json_response(user_prompt):
+	messages = [
+		{"role": "user", "content": user_prompt}
+	]
+
+	text = tokenizer.apply_chat_template(
+		messages,
+		tokenize=False,
+		add_generation_prompt=True
+	)
+
+	inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+	output = model.generate(
+		**inputs,
+		max_new_tokens=150,
+		do_sample=False,
+		eos_token_id=tokenizer.eos_token_id
+	)
+
+	generated_ids = output[0][inputs.input_ids.shape[1]:]
+	response_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+	return json.dumps({"answer": response_text}, indent=4)
+```
+
+### Why this path is recommended
+
+- it guarantees valid JSON,
+- it is easier to debug,
+- it is easier to adapt to your own output schema,
+- it integrates cleanly with Gradio.
+
+> [!IMPORTANT]
+> If the project expects a different JSON schema, change the wrapper keys here.
+
+---
+
+## 14. Gradio as the application layer
+
+Gradio is the interface layer that lets you turn the model into a simple interactive app.
+
+### Key snippet
+
+```python
+import gradio as gr
+
+demo = gr.Interface(
+	fn=generate_json_response,
+	inputs=gr.Textbox(
+		lines=3,
+		placeholder="Ask a question about MediCore Hospital",
+		label="Enter your prompt"
+	),
+	outputs=gr.Code(language="json", label="JSON Output"),
+	title="MediCore Fine-Tuned Qwen Bot",
+	description="Ask questions and receive structured JSON output."
+)
+
+demo.launch(share=True, debug=True)
+```
+
+### What to take from this step
+
+- the fine-tuned model is not the whole project,
+- the interface matters,
+- structured output makes it easier to display or parse results.
+
+> [!IMPORTANT]
+> Gradio and JSON belong to the project path here. They are not unrelated extras.
+
+---
+
+## 15. Exact cells you will modify for your own dataset
+
+This should be explicit because Activity 1 is intended to be reused for the mini project.
+
+### Must change
+
+- the dataset download cell before Step 3 if they are not using [`MediCore.json`](./MediCore.json),
+- Cell 2b baseline prompt,
+- Cell 3 dataset filename and `preprocess(sample)` mapping,
+- Cell 7 test prompt,
+- the JSON schema cell used for Gradio output,
+- the Gradio interface text and labels.
+
+### May change
+
+- Cell 4 LoRA settings if model family changes,
+- Cell 5 training hyperparameters if dataset size or VRAM constraints change.
+
+### The most important customization point
+
+> [!IMPORTANT]
+> Cell 3 is the main customization point.
+
+You usually do not need to rewrite the overall pipeline. You need to adapt the mapping from your dataset into the required chat message structure.
+
+---
+
+## 16. Common failure points
+
+### Failure point 1: wrong dataset mapping
+
+Symptoms:
+
+- training runs, but answers are poor,
+- the model answers in the wrong style,
+- the model ignores the intended task.
+
+Cause:
+
+- incorrect `prompt`/`completion` mapping,
+- inconsistent formatting across rows,
+- training examples not matching the target use case.
+
+### Failure point 2: training and inference mismatch
+
+Symptoms:
+
+- model output looks unstable,
+- JSON format breaks,
+- responses ignore system instructions.
+
+Cause:
+
+- different message structures between training and inference.
+
+### Failure point 3: memory problems in Colab
+
+Symptoms:
+
+- CUDA out-of-memory errors,
+- notebook crashes or restarts.
+
+Actions:
+
+- reduce `per_device_train_batch_size`,
+- keep or increase `gradient_accumulation_steps`,
+- avoid unnecessarily long examples,
+- keep `fp16=True`.
+
+### Failure point 4: relying only on loss values
+
+Symptoms:
+
+- training seems successful numerically,
+- but outputs are low quality or too rigid.
+
+Action:
+
+- evaluate with multiple prompts from the actual task.
+
+---
+
+## 17. What is required, recommended, and optional
+
+### Required for the mini project
+
+- correct chat-template preprocessing,
+- LoRA fine-tuning,
+- testing with consistent prompt structure,
+- structured JSON output,
+- Gradio-based interface or rendering.
+
+### Recommended
+
+- Hugging Face authentication,
+- baseline inference before training,
+- trying several evaluation prompts,
+- saving a merged model if deployment needs it.
+
+### Optional or appendix-level material
+
+- alternative JSON-enforcement strategies,
+- advanced Pydantic schemas,
+- QLoRA and larger-model discussion,
+- fine-tuning versus RAG comparison.
+
+---
+
+## 18. Fine-tuning versus RAG
+
+Fine-tuning and Retrieval-Augmented Generation (RAG) solve different problems.
+
+### Fine-tuning is best when:
+
+- you want to adapt behavior,
+- you want a specific answer style or format,
+- the dataset is small and focused,
+- the goal is a self-contained adapted model.
+
+### RAG is best when:
+
+- facts change often,
+- the knowledge base is large,
+- answers must stay grounded in live documents,
+- retraining would be inconvenient or unnecessary.
+
+> [!NOTE]
+> It is entirely possible that RAG would be more suitable for some mini-project ideas. For example, if the information changes frequently or comes from many documents, retrieving that information at runtime may be a better design than baking it into model behavior through fine-tuning.
+
+> [!TIP]
+> The reason this module focuses on fine-tuning is pedagogical. RAG can be studied independently, but fine-tuning gives direct experience with dataset design, prompt structure, adapter-based training, and model adaptation. Those ideas are useful even when you later decide that RAG is the better production choice.
+
+### A practical distinction
+
+- Fine-tuning changes model behavior by updating adapter weights.
+- RAG leaves model weights unchanged and retrieves external information at inference time.
+
+With `MediCore.json`, fine-tuning is a reasonable teaching example because the dataset is small, focused, and easy to map into a prompt-response format.
+
+---
+
+## 19. Recap
+
+The most important ideas from this part are:
+
+1. fine-tuning is not just about changing model weights, but also about teaching a pattern of input-output formatting,
+2. dataset mapping is the most important customization step,
+3. training and inference prompt structures must stay aligned,
+4. LoRA makes fine-tuning practical on limited hardware,
+5. JSON output and Gradio are part of the core project workflow,
+6. evaluate with real prompts, not only loss values,
+7. depending on the problem, RAG may later prove more suitable than fine-tuning.
+
+Activity 1 provides the full hands-on workflow. This part is meant to clarify why each step exists before you modify the lab for your own project.
+
+
+---
+
+## Links
+
+- [AI Engineering (Chapter 7. Finetuning), by Chip Huyen](https://metropolia.finna.fi/Record/nelli15.36974248300041)
+- Course: [fine-tuning techniques for large language models.](https://huggingface.co/learn/smol-course/unit0/1)
