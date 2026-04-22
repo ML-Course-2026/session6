@@ -21,12 +21,13 @@ While related, these terms have distinct meanings:
 
 *(See: [Edge Computing and ML](https://viso.ai/edge-ai/edge-intelligence-deep-learning-with-edge-computing/))*
 
-**3. The Rise of TinyML: The Edge AI Foundation**
+**3. The Rise of TinyML and the Edge AI Ecosystem**
 
 Running complex AI models on resource-constrained edge devices (like microcontrollers with limited memory and power) presents challenges.
 
-*   **Philosophy:** The **Edge AI Foundation**, often associated with the **TinyML** movement (Tiny Machine Learning), focuses on developing techniques and tools to enable powerful ML applications on low-power, low-cost hardware. The goal is to make AI ubiquitous and accessible even on the smallest devices.
-*   **Learning Resources:** Organizations and initiatives within this field offer educational materials. For example, courses like **Embedded ML** and **Efficient ML (AutoML)** are available to teach the principles and practices of deploying ML on embedded systems.
+*   **TinyML:** TinyML (Tiny Machine Learning) refers to the broader area of running ML on very small, resource-constrained devices such as microcontrollers.
+*   **Ecosystem and Community:** Organizations such as the **Edge AI Foundation** support this wider ecosystem by promoting tools, practices, events, and educational resources for low-power, low-cost embedded AI.
+*   **Learning Resources:** Courses like **Embedded ML** and **Efficient ML (AutoML)** help you understand the principles and practices of deploying ML on embedded systems.
 
 *(See: [Edge AI Foundation Philosophy](https://www.edgeaifoundation.org/), [TinyML Courses](https://tinyml.seas.harvard.edu/courses/))*
 
@@ -68,7 +69,7 @@ To deepen understanding, we will perform a group activity:
 *   **Task**: Groups will be assigned one topic. Research its key features and potential uses relevant to IoT or your interests. Prepare a brief (5-minute) presentation summarizing your findings.
 *   **Goal**: Share knowledge, connect concepts to potential projects, and discuss the impact of Edge AI.
 
-*(See section "[Activity 1: Exploring Deep Learning at the Edge" above for full details](./activity1.md))*
+*(See [Activity 2: Exploring Edge Intelligence, TinyML, and Edge AI Platforms](./activity2.md) for full details.)*
 
 **Conclusion**
 

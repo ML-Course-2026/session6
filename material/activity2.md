@@ -1,4 +1,4 @@
-# Activity 1: Exploring Deep Learning at the Edge
+# Activity 2: Exploring Edge Intelligence, TinyML, and Edge AI Platforms
 
 **Objective**: To explore the concepts of edge intelligence, TinyML, Edge Impulse, and SensiML, and their potential applications in various projects or domains, building upon the introductory lecture.
 
@@ -33,13 +33,13 @@
     *   Prepare a brief (approx. 5-minute) summary presentation to share your findings. Focus on clarity and the main points. You can use **Google Slides** to create your presentation: [https://slides.google.com/](https://slides.google.com/).
 
 3.  **Presentations**:
-    *   One group chosen at random *for each topic* (TinyML, Edge Impulse, SensiML) will present their summary (approx. 5 minutes per group, plus transition time).
+    *   Next week, one group chosen at random for each topic (TinyML, Edge Impulse, SensiML) will present their summary (approx. 5 minutes per group, plus transition time).
     *   The presenting group should share their understanding of the concepts, illustrated with details about their specific topic, and briefly reflect on its relevance to potential IoT projects or areas of interest.
 
 ---
 
 > [!IMPORTANT]  
-> Please remember that your presentation is **part of the deliverables** and should be uploaded to your group's **Google Drive folder for Week 7** along with any other required files.  
+> Please remember that your presentation is **part of the deliverables** and should be uploaded to your group's **Google Drive folder for Week 6** along with any other required files.  
 
 ---
 

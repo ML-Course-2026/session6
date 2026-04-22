@@ -2,7 +2,7 @@
 
 This part brings the theory, core concepts, and important code snippets into one place before or alongside the hands-on activity. It is designed to support Activity 1 and the mini project.
 
-The mini project goal is not only to fine-tune a model. Groups are expected to:
+The mini project goal is not only to fine-tune a model. You are expected to:
 
 - fine-tune a model on their own dataset,
 - make it answer in a structured format,
@@ -156,7 +156,7 @@ model.config.use_cache = False
 
 Before training, ask the model one test question.
 
-This gives them a before-and-after comparison.
+This gives you a before-and-after comparison.
 
 ### Key snippet
 

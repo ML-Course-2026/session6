@@ -441,7 +441,7 @@ This is optional. You do not need it to complete the mini project.
 
 In this short lab, you:
 
-1. loaded a pretrained Qwen model,
+1. loaded an instruction-tuned Qwen starting model,
 2. mapped a dataset into chat format,
 3. fine-tuned LoRA adapters,
 4. tested the result,

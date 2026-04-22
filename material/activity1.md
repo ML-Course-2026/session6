@@ -285,7 +285,11 @@ data = raw_data.map(
 - Cell 3: replace the filename and the field mapping inside `preprocess(sample)`.
 - Cell 5: adjust training settings if your dataset size or Colab memory budget is different.
 - Cell 7: replace the test prompt.
-- Cells 9 to 12: adapt the JSON schema and Gradio behavior for your project.
+- For the JSON/Gradio part, choose the path that fits your project:
+    - Cell 9 if you want to test model-controlled JSON with a system prompt,
+    - Cell 10 for the matching Gradio interface for that path,
+    - Cell 11 as the recommended default path using a Python-enforced JSON wrapper,
+    - Cell 12 if you want a Pydantic-based structured output version.
 
 <details>
 <summary><b>Q&A: Why do we use `padding=False` here if the model requires batches of identical length?</b></summary>
@@ -350,11 +354,19 @@ To train larger models for free, you use a technique called <b>QLoRA (Quantized 
 ### Step 5: Configure Training Arguments and Execute Training
 
 **Understanding the Step Count:**
-If your output shows `1770` steps completed, this number is a direct mathematical result of your dataset size, batch size, and epochs.
-The formula is: `Total Steps = (Dataset Size ÷ Batch Size) × Epochs`.
-If we assume the batch size is `2` and epochs are `15`:
-`1770 = (Dataset Size ÷ 2) × 15` -> `118 = Dataset Size ÷ 2` -> `Dataset Size = 236`.
-This means a dataset of exactly 236 lines will result in exactly 1,770 training steps under these parameters.
+If your output shows a particular number of training steps, that number comes from the size of the training split, the batch settings, gradient accumulation, and the number of epochs.
+
+A useful simplified intuition is:
+`Total optimizer steps ≈ (Training Split Size ÷ Effective Batch Size) × Epochs`
+
+In this lab, the exact count depends on all of the following:
+
+- 10% of the dataset is reserved for validation,
+- `per_device_train_batch_size=1`,
+- `gradient_accumulation_steps=2`,
+- `num_train_epochs=5`.
+
+So the exact step count will vary with your dataset size and with how the Trainer rounds partial batches.
 
 ```python
 #[Cell 5] Training Setup and Execution
@@ -542,6 +554,9 @@ Setting <code>do_sample=False</code> enables "greedy decoding." When evaluating 
 ---
 
 ## Core project extension: structured JSON and Gradio
+
+> [!NOTE]
+> The cell numbering intentionally keeps the original working notebook order. Optional merge-and-save remains as Cell 8 in Appendix A at the end, so the main JSON/Gradio extension continues with Cells 9 to 12 here.
 
 ### Concept: Ensuring Structured Outputs (Markdown or JSON)
 
