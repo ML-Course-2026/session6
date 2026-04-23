@@ -1381,6 +1381,7 @@ For your own project, the main things that will change are usually the dataset f
 
 ---
 
-## Link(s)
+## Links
 
 - [AI Engineering (Chapter 7. Finetuning), by Chip Huyen](https://metropolia.finna.fi/Record/nelli15.36974248300041)
+- [Build a Large Language Model (From Scratch)](https://metropolia.finna.fi/Record/nelli15.35136342700041)
