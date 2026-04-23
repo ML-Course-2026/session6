@@ -1,6 +1,6 @@
 # Activity 1: Fine-Tuning Qwen 2.5 with LoRA
 
-This is the longer reference version of the lab. It keeps the full explanations, alternatives, and appendix material while preserving the working code path used in the shorter version.
+This is the longer reference version of the lab. It keeps the full explanations, alternatives, and appendix material while preserving the working code path used [in the shorter version](./activity1-short-version.md).
 
 The mini project goal is not only to fine-tune a model. You are also expected to:
 
@@ -43,21 +43,6 @@ Training language models on a CPU is too slow to be practical. Before starting, 
 
 ---
 
-### Concept: Understanding Prompt Styles and Chat Templates
-
-Language models do not inherently understand the difference between a human's instruction and their own response. To give them conversational structure, they are trained using specific **control tokens** that define message boundaries and roles.
-
-Different models use entirely different formatting structures:
-
-*   **Llama** models often use `[INST]` and `[/INST]` tags.
-*   **Qwen** models utilize a format known as **ChatML**, which relies on tags like `<|im_start|>` to begin a message, `<|im_end|>` to close it, and role indicators like `user` or `assistant`.
-
-If you try to train or prompt a model using the wrong tags (for example, guessing generic tags like `<|user|>` and `<|assistant|>` on a Qwen model), the model treats them as random text rather than structural commands. This causes the model to lose the conversational context, often resulting in runaway text generation or severe hallucinations.
-
-To resolve this across different models, modern workflows use `tokenizer.apply_chat_template()`. This function takes a standardized dictionary of messages and automatically injects the exact control tokens the specific model was trained to recognize.
-
----
-
 ## Core workflow
 
 ### Step 0: Install Dependencies
@@ -69,12 +54,22 @@ Before running any code, you must install the necessary machine learning librari
 !pip install -q transformers datasets peft accelerate huggingface_hub gradio
 ```
 
-> [!TIP]
-> To check how much RAM is available in the container associated with your Colab Jupyter notebook, use this command:
 
+> [!TIP]  
+> To check how much **system RAM (CPU memory)** is available in the container associated with your Colab Jupyter notebook, use this command:
 ```python
 !free -h
+````
+
+> Note: This shows only system RAM. To check **GPU memory (VRAM)**, use:
+
+```python
+!nvidia-smi
 ```
+
+> In Colab, you can also view both CPU and GPU resource usage from the menu:
+> **Runtime → View resources**
+
 
 ---
 
@@ -129,6 +124,10 @@ Hardcoding sensitive tokens (e.g., <code>login("hf_my_secret_key_123")</code>) i
 ### Step 2: Load the Starting Model and Tokenizer
 
 **What is a Tokenizer?** Neural networks cannot read text. The tokenizer translates text strings into numerical IDs (tokens) that the model can process mathematically, and later converts the model's numerical output back into human-readable text.
+
+> You can explore how tokenization works in practice using this interactive demo:
+[https://platform.openai.com/tokenizer](https://platform.openai.com/tokenizer)
+
 
 ```python
 #[Cell 2] Load Model and Tokenizer
@@ -202,6 +201,7 @@ text = tokenizer.apply_chat_template(
 )
 
 inputs = tokenizer(text, return_tensors="pt").to(model.device)
+# print("Token IDs:\n", inputs["input_ids"][0][:20]) # Shows the first ~20 token IDs (numbers)
 
 # Generate an answer using the untrained starting model
 output = model.generate(
@@ -215,6 +215,188 @@ output = model.generate(
 generated_ids = output[0][inputs.input_ids.shape[1]:]
 print("STARTING MODEL ANSWER:\n", tokenizer.decode(generated_ids, skip_special_tokens=True))
 ```
+
+#### Concept: Understanding Prompt Styles and Chat Templates
+
+Language models do not inherently understand the difference between a human's instruction and their own response. To give them conversational structure, they are trained using specific **control tokens** that define message boundaries and roles.
+
+Different models use entirely different formatting structures:
+
+*   **Llama** models often use `[INST]` and `[/INST]` tags.
+*   **Qwen** models utilize a format known as **ChatML**, which relies on tags like `<|im_start|>` to begin a message, `<|im_end|>` to close it, and role indicators like `user` or `assistant`.
+
+If you try to train or prompt a model using the wrong tags (for example, guessing generic tags like `<|user|>` and `<|assistant|>` on a Qwen model), the model treats them as random text rather than structural commands. This causes the model to lose the conversational context, often resulting in runaway text generation or severe hallucinations.
+
+To resolve this across different models, modern workflows use `tokenizer.apply_chat_template()`. This function takes a standardized dictionary of messages and automatically injects the exact control tokens the specific model was trained to recognize.
+
+
+<details>
+<summary><b>Code Explanation:</b></summary>
+<br>
+
+
+**Purpose of this cell**
+
+This is a **baseline test** of your model *before fine-tuning*.
+
+You are asking:
+
+> “What does the model know right now?”
+
+This lets you compare:
+
+* before fine-tuning (this cell)
+* after fine-tuning (later)
+
+**Step-by-step explanation**
+
+**1. Define the user message**
+
+```python
+messages = [{"role": "user", "content": "Who leads the neurology department at MediCore Hospital?"}]
+```
+
+* You create a **chat-style input**
+* Format matches how chat models expect data:
+
+  * `"role": "user"`
+  * `"content": question`
+
+
+**2. Format the prompt (Chat template)**
+
+```python
+text = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
+```
+
+What this does:
+
+* Converts structured messages → **single formatted string**
+* Adds special tokens required by the model (ChatML format)
+* `add_generation_prompt=True` tells the model: “Now it's your turn to answer”
+
+* Example (conceptually):
+
+```
+<|user|>
+Who leads the neurology department...
+<|assistant|>
+```
+
+**3. Convert text → tokens (numbers)**
+
+```python
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+```
+
+* Text → numerical IDs (tokens)
+* Returned as PyTorch tensors (`"pt"`)
+* Moved to GPU (`model.device`)
+
+* Models only understand numbers, not text.
+
+**4. Generate output**
+
+```python
+output = model.generate(
+    **inputs,
+    max_new_tokens=50,
+    do_sample=False,
+    eos_token_id=tokenizer.eos_token_id
+)
+```
+
+Key parameters:
+
+* `max_new_tokens=50` → limits response length
+
+* `do_sample=False` → deterministic output (same result every time)
+
+* `eos_token_id=...`  → tells model when to stop generating
+
+* This is the **core inference step**
+
+
+**5. Remove the input from the output**
+
+```python
+generated_ids = output[0][inputs.input_ids.shape[1]:]
+```
+
+Why this is needed:
+
+* `model.generate()` returns: **[input tokens + generated tokens]**
+* This line slices out: only the **newly generated part**
+
+**6. Convert tokens → readable text**
+
+```python
+print("STARTING MODEL ANSWER:\n", tokenizer.decode(generated_ids, skip_special_tokens=True))
+```
+
+* Converts numbers back → text
+* Removes special tokens (like `<|assistant|>`)
+
+**What you should expect**
+
+Since this is **before fine-tuning**, the model will likely:
+
+* hallucinate
+* give generic answers
+* not know “MediCore Hospital”
+
+**Why this is important**
+
+This gives you a **reference point**.
+
+Later, after fine-tuning, you’ll run the same prompt and compare.
+
+
+Here’s a simple **visual diagram of the token flow** you can include in your notes or slides:
+
+
+```
+User Input (Text):  "Who leads the neurology department?"
+
+                │
+                ▼
+Tokenizer (Encoding)
+   Converts text → tokens (numbers)
+
+   Example:
+   ["Who", "leads", "the", "neuro", "logy", ...]
+        ↓
+   [1234, 5678, 910, 4321, 8765, ...]
+
+                │
+                ▼
+
+Language Model
+   Processes token IDs and predicts next tokens
+
+   Input:  [1234, 5678, 910, ...]
+   Output: [2222, 3333, 4444, ...]
+
+                │
+                ▼
+
+Tokenizer (Decoding)
+   Converts tokens → text
+
+   [2222, 3333, 4444] → "The head is Dr. Smith..."
+
+                │
+                ▼
+
+Final Output (Text)
+   "The head of the neurology department is ???"
+```
+
+</details>
 
 ---
 
@@ -327,6 +509,10 @@ lora_config = LoraConfig(
 model = get_peft_model(model, lora_config)
 ```
 
+
+<img src="./img/lora.png" width="50%">
+<br>(src: https://www.intel.com/content/www/us/en/developer/articles/llm/fine-tuning-llama2-70b-and-lora-on-gaudi2.html)
+
 #### Code Explanation:
 
 *   `TaskType.CAUSAL_LM`: Tells the PEFT (Parameter-Efficient Fine-Tuning) library that we are training a model to predict the next word (Causal Language Modeling), as opposed to a classification or translation model.
@@ -347,6 +533,132 @@ In neural networks, calculations usually follow the formula <code>y = (weights *
 With standard LoRA (like we used above), no. The Colab free tier provides 15 GB of VRAM. A 1.5B model takes ~3 GB to load, which fits easily. However, an 8B parameter model (like Llama-3 8B) takes ~15 GB just to load the weights in 16-bit precision, causing an Out of Memory (OOM) crash the moment training starts.
 <br><br>
 To train larger models for free, you use a technique called <b>QLoRA (Quantized LoRA)</b>. With QLoRA, you use the <code>bitsandbytes</code> library to compress the massive starting model down to 4-bit precision (shrinking an 8B model from ~15 GB down to ~5 GB). The starting model remains frozen in 4-bit, while the PEFT library attaches standard 16-bit LoRA adapters on top. This allows you to fine-tune massive models comfortably within Colab's 15 GB limit.
+</details>
+
+
+
+<details>
+<summary><b>Q&A: How LoRA decides which weights to modify</b></summary>
+<br>
+
+Cell #4 does **two important things**:
+
+1. Defines *where* LoRA should be applied
+2. Wraps the model so only those parts are trainable
+
+**Key idea**
+
+- LoRA does **not** add layers at the end of the model.
+- It **injects small trainable adapters inside specific existing layers**.
+
+**The critical line: `target_modules`**
+
+```python
+target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+```
+
+- This is what controls **which parts of the model are modified**.
+
+**What these modules are**
+
+These names correspond to components inside each transformer block:
+
+Attention layers
+
+* `q_proj` → Query projection
+* `k_proj` → Key projection
+* `v_proj` → Value projection
+* `o_proj` → Output projection
+
+Feedforward (MLP) layers
+
+* `up_proj`
+* `down_proj`
+* `gate_proj`
+
+These are **core weight matrices inside every transformer layer**
+
+
+**What LoRA actually does**
+
+When you run:
+
+```python
+model = get_peft_model(model, lora_config)
+```
+
+The library:
+
+* Finds all layers matching names like `"q_proj"`, `"v_proj"`, etc.
+* Injects **low-rank adapter matrices** into them
+* Freezes the original weights
+* Makes **only the adapters trainable**
+
+**Important clarification**
+
+**Wrong idea:**
+
+> “LoRA adds something at the end of the model”
+
+**Correct idea:**
+
+> “LoRA modifies specific internal layers throughout the model”
+
+**Visual intuition**
+
+Instead of this:
+
+```
+[Transformer] → [LoRA layer at the end]
+```
+
+It’s actually this:
+
+```
+Layer 1: [q_proj + LoRA] [k_proj + LoRA] ...
+Layer 2: [q_proj + LoRA] [k_proj + LoRA] ...
+Layer 3: [q_proj + LoRA] [k_proj + LoRA] ...
+...
+```
+
+LoRA is applied **inside many layers, not after them**
+
+**Why this matters**
+
+* You control **where learning happens**
+* You can:
+
+  * adapt attention only
+  * adapt MLP only
+  * or both (like you did)
+
+
+**Other config parameters (briefly)**
+
+```python
+r=16
+```
+
+* Rank of the adapter (size of LoRA matrices)
+* Higher = more capacity, more memory
+
+```python
+lora_alpha=32
+```
+
+Scaling factor for LoRA updates
+
+```python
+bias="none"
+```
+
+* Bias terms are not trained
+
+
+**One-line takeaway**
+
+> The `target_modules` field determines **which internal layers get LoRA adapters**, meaning fine-tuning happens *throughout the model*, not at the end.
+
 </details>
 
 ---
@@ -429,7 +741,7 @@ tokenizer.save_pretrained("./my_qwen")
 *   `lr_scheduler_type="cosine"`: Slowly reduces the learning rate as training progresses. This prevents the model from taking massive mathematical "steps" near the end of training, helping it settle on the exact correct weights without overshooting.
 
 > [!NOTE]
-> In Session 5, the same workflow ran on Google Colab Free Tier without an out-of-memory error when `per_device_train_batch_size=2` was used. In this longer version, `per_device_train_batch_size=1` is kept as the safer default. If your Colab runtime has enough available VRAM, you can try `per_device_train_batch_size=2`.
+> The same workflow ran on Google Colab Free Tier without an out-of-memory error when `per_device_train_batch_size=2` was used. In this longer version, `per_device_train_batch_size=1` is kept as the safer default. If your Colab runtime has enough available VRAM, you can try `per_device_train_batch_size=2`.
 
 **NOTE ON OVERFITTING**
 
@@ -451,6 +763,26 @@ We save the tokenizer (<code>tokenizer.save_pretrained</code>) alongside the mod
 <br>
 This tells the Trainer how often to print the training loss (how wrong the model's current predictions are) to the screen. If set to 25, it prints an update every 25 steps. Seeing the loss slowly decrease over time proves the model is actually learning.
 </details>
+
+
+<details>
+<summary><b>NOTE ON SAVING YOUR MODEL (IMPORTANT IN COLAB)</b></summary>
+
+
+Colab sessions are temporary. If you do not download your model,
+it will be lost when the session ends. After training, we save the LoRA adapters (and tokenizer) to a folder. You should then zip this folder and download it to your local machine.
+
+```python
+# STEP: Zip the saved folder
+# This creates a downloadable archive
+!zip -r my_qwen.zip my_qwen
+
+# ⬇STEP: Download to your local machine
+from google.colab import files
+files.download("my_qwen.zip")
+```
+
+<details>
 
 ---
 
@@ -901,6 +1233,10 @@ print("Model successfully merged and saved!")
 *  `model.merge_and_unload()`: Mathematically adds the LoRA adapter weights directly into the corresponding starting-model weight matrices. The adapter is then discarded. The result is a single standalone model with no PEFT dependency — simpler to deploy.
 *  `merged_model.save_pretrained(...)`: Saves the full merged model (starting model + adapter fused). Unlike `trainer.save_model`, this saves the **entire model** (~3 GB), not just the adapter.
 
+<!-- 
+> To use this model with Ollama, an additional conversion step is required because Ollama expects models in a specific optimized format (e.g., GGUF). [More here](./ollama.md) 
+-->
+
 ---
 
 ### Appendix B: Advanced Concepts Q&A
@@ -1046,7 +1382,6 @@ For your own project, the main things that will change are usually the dataset f
 
 ---
 
-## Links
+## Link(s)
 
 - [AI Engineering (Chapter 7. Finetuning), by Chip Huyen](https://metropolia.finna.fi/Record/nelli15.36974248300041)
-- 
