@@ -773,16 +773,15 @@ Colab sessions are temporary. If you do not download your model,
 it will be lost when the session ends. After training, we save the LoRA adapters (and tokenizer) to a folder. You should then zip this folder and download it to your local machine.
 
 ```python
-# STEP: Zip the saved folder
-# This creates a downloadable archive
+# Zip the saved folder. This creates a downloadable archive
 !zip -r my_qwen.zip my_qwen
 
-# ⬇STEP: Download to your local machine
+# Download to your local machine. 
 from google.colab import files
 files.download("my_qwen.zip")
 ```
 
-<details>
+</details>
 
 ---
 
