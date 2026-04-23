@@ -35,7 +35,7 @@
 #### Part 0: Review
 
 - [Where are we now?](./material/part0.md)
-- Group presentations
+- Group presentations:  Gr 1, Gr 4, Gr 11
 
 ---
 
