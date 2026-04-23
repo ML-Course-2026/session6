@@ -54,6 +54,7 @@
 - Introduction to Edge Intelligence
 - [Summary: Key Points and Takeaways](./material/part2.md)
 - [Activity 2](./material/activity2.md)
+- [Demo](https://sensiml.com/documentation/application-tutorials/activity-recognition-boxing-punches.html)
 
 
 ----
