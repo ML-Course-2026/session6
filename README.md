@@ -62,6 +62,7 @@
 
 -  https://excalidraw.com/
 - https://huggingface.co/Qwen
+- https://playground.tensorflow.org/
 
 <!-- - [Slides](./material/lec_4_part1.ipynb) -->
 </details>
